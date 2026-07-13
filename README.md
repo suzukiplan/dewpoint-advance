@@ -13,6 +13,8 @@
 ## How to Build
 
 > 現在、暫定的に macOS でのみビルドできます。
+>
+> ※ Linux と Windows のビルドにも対応予定
 
 ```bash
 git clone https://github.com/suzukiplan/mgba-steam
