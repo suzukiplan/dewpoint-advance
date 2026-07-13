@@ -6,6 +6,7 @@
 
 #include <mgba/core/config.h>
 #include <mgba/core/core.h>
+#include <mgba/internal/gba/input.h>
 #include <mgba-util/audio-buffer.h>
 #include <mgba-util/audio-resampler.h>
 #include <mgba-util/interpolator.h>
@@ -65,7 +66,7 @@ struct mGBAHelper::Impl {
 };
 
 mGBAHelper::mGBAHelper()
-    : impl(nullptr)
+    : impl(nullptr), keyState{}
 {
     std::memset(vram, 0, sizeof(vram));
 }
@@ -148,6 +149,17 @@ void mGBAHelper::tick()
         return;
     }
 
+    uint32_t keys = 0;
+    keys |= static_cast<uint32_t>(keyState.a) << GBA_KEY_A;
+    keys |= static_cast<uint32_t>(keyState.b) << GBA_KEY_B;
+    keys |= static_cast<uint32_t>(keyState.start) << GBA_KEY_START;
+    keys |= static_cast<uint32_t>(keyState.right) << GBA_KEY_RIGHT;
+    keys |= static_cast<uint32_t>(keyState.left) << GBA_KEY_LEFT;
+    keys |= static_cast<uint32_t>(keyState.up) << GBA_KEY_UP;
+    keys |= static_cast<uint32_t>(keyState.down) << GBA_KEY_DOWN;
+    keys |= static_cast<uint32_t>(keyState.r) << GBA_KEY_R;
+    keys |= static_cast<uint32_t>(keyState.l) << GBA_KEY_L;
+    impl->core->setKeys(impl->core, keys);
     impl->core->runFrame(impl->core);
 
     mAudioBuffer* source = impl->core->getAudioBuffer(impl->core);

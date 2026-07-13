@@ -1,5 +1,6 @@
 CXX ?= clang++
 CMAKE ?= cmake
+SDL2_CONFIG ?= sdl2-config
 
 TARGET := sdlmain
 BUILD_DIR := build/Darwin
@@ -10,10 +11,11 @@ OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
 DEPFILES := $(OBJECTS:.o=.d)
 
 CPPFLAGS := -I./src -I./mgba/include -I$(MGBA_BUILD_DIR)/include \
+	$(shell $(SDL2_CONFIG) --cflags) \
 	-DBUILD_STATIC -DENABLE_DIRECTORIES -DENABLE_VFS
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic -MMD -MP
-LDLIBS := $(MGBA_LIBRARY) -framework Foundation -pthread
+LDLIBS := $(MGBA_LIBRARY) $(shell $(SDL2_CONFIG) --libs) -framework Foundation -pthread
 
 .PHONY: all clean mgba
 

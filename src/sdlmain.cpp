@@ -1,6 +1,5 @@
 #include "mgbahelper.h"
 
-#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -8,10 +7,15 @@
 #include <vector>
 
 #include <mgba/core/log.h>
+#include <SDL.h>
 
 namespace
 {
-constexpr int FRAME_COUNT = 600;
+constexpr int WINDOW_SCALE = 3;
+constexpr int AUDIO_FREQUENCY = 44100;
+constexpr int AUDIO_CHANNELS = 2;
+constexpr int AUDIO_SAMPLES = 2048;
+constexpr Uint32 TARGET_QUEUED_AUDIO_SIZE = AUDIO_FREQUENCY * AUDIO_CHANNELS * sizeof(int16_t) / 20;
 
 class ScopedLogger
 {
@@ -35,77 +39,41 @@ class ScopedLogger
     }
 };
 
-void writeU16(std::ostream& output, uint16_t value)
+class ScopedSdl
 {
-    const char bytes[] = {
-        static_cast<char>(value & 0xff),
-        static_cast<char>((value >> 8) & 0xff),
-    };
-    output.write(bytes, sizeof(bytes));
-}
+  private:
+    bool initialized;
 
-void writeU32(std::ostream& output, uint32_t value)
-{
-    const char bytes[] = {
-        static_cast<char>(value & 0xff),
-        static_cast<char>((value >> 8) & 0xff),
-        static_cast<char>((value >> 16) & 0xff),
-        static_cast<char>((value >> 24) & 0xff),
-    };
-    output.write(bytes, sizeof(bytes));
-}
-
-bool writeBitmap(const std::string& path, const uint32_t* pixels, int width, int height)
-{
-    if (!pixels || width <= 0 || height <= 0) {
-        return false;
+  public:
+    ScopedSdl()
+        : initialized(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) == 0)
+    {
     }
 
-    constexpr uint32_t FILE_HEADER_SIZE = 14;
-    constexpr uint32_t INFO_HEADER_SIZE = 40;
-    const uint32_t rowSize = (static_cast<uint32_t>(width) * 3 + 3) & ~uint32_t(3);
-    const uint32_t pixelDataSize = rowSize * static_cast<uint32_t>(height);
-    const uint32_t pixelOffset = FILE_HEADER_SIZE + INFO_HEADER_SIZE;
-
-    std::ofstream output(path, std::ios::binary);
-    if (!output) {
-        return false;
-    }
-
-    output.put('B');
-    output.put('M');
-    writeU32(output, pixelOffset + pixelDataSize);
-    writeU16(output, 0);
-    writeU16(output, 0);
-    writeU32(output, pixelOffset);
-
-    writeU32(output, INFO_HEADER_SIZE);
-    writeU32(output, static_cast<uint32_t>(width));
-    writeU32(output, static_cast<uint32_t>(height));
-    writeU16(output, 1);
-    writeU16(output, 24);
-    writeU32(output, 0);
-    writeU32(output, pixelDataSize);
-    writeU32(output, 2835);
-    writeU32(output, 2835);
-    writeU32(output, 0);
-    writeU32(output, 0);
-
-    const char padding[3] = {};
-    const size_t paddingSize = rowSize - static_cast<uint32_t>(width) * 3;
-    for (int y = height - 1; y >= 0; --y) {
-        for (int x = 0; x < width; ++x) {
-            const uint32_t color = pixels[y * width + x];
-            const char bgr[] = {
-                static_cast<char>((color >> 16) & 0xff),
-                static_cast<char>((color >> 8) & 0xff),
-                static_cast<char>(color & 0xff),
-            };
-            output.write(bgr, sizeof(bgr));
+    ~ScopedSdl()
+    {
+        if (initialized) {
+            SDL_Quit();
         }
-        output.write(padding, paddingSize);
     }
-    return output.good();
+
+    explicit operator bool() const { return initialized; }
+};
+
+void updateKeyState(mGBAHelper::KeyState* state, SDL_Keycode key, bool pressed)
+{
+    switch (key) {
+        case SDLK_UP: state->up = pressed; break;
+        case SDLK_DOWN: state->down = pressed; break;
+        case SDLK_LEFT: state->left = pressed; break;
+        case SDLK_RIGHT: state->right = pressed; break;
+        case SDLK_z: state->b = pressed; break;
+        case SDLK_x: state->a = pressed; break;
+        case SDLK_a: state->l = pressed; break;
+        case SDLK_s: state->r = pressed; break;
+        case SDLK_SPACE: state->start = pressed; break;
+        case SDLK_ESCAPE: state->select = pressed; break;
+    }
 }
 
 bool readFile(const char* path, std::vector<uint8_t>* data)
@@ -146,15 +114,125 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    for (int frame = 0; frame < FRAME_COUNT; ++frame) {
-        gba.tick();
-    }
-
-    if (!writeBitmap("vram.bmp", gba.getVram(), gba.getVramWidth(), gba.getVramHeight())) {
-        std::cerr << "Failed to write vram.bmp\n";
+    ScopedSdl sdl;
+    if (!sdl) {
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         return 1;
     }
 
-    std::cout << "Executed " << FRAME_COUNT << " frames and wrote vram.bmp\n";
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+    SDL_Window* window = SDL_CreateWindow(
+        "mGBA SDL2",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        gba.getVramWidth() * WINDOW_SCALE,
+        gba.getVramHeight() * WINDOW_SCALE,
+        SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
+    if (!window) {
+        std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
+        return 1;
+    }
+
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer) {
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    }
+    if (!renderer) {
+        std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << '\n';
+        SDL_DestroyWindow(window);
+        return 1;
+    }
+    SDL_RenderSetLogicalSize(renderer, gba.getVramWidth(), gba.getVramHeight());
+
+    SDL_Texture* texture = SDL_CreateTexture(
+        renderer,
+        SDL_PIXELFORMAT_ABGR8888,
+        SDL_TEXTUREACCESS_STREAMING,
+        gba.getVramWidth(),
+        gba.getVramHeight());
+    if (!texture) {
+        std::cerr << "SDL_CreateTexture failed: " << SDL_GetError() << '\n';
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        return 1;
+    }
+
+    SDL_AudioSpec desired{};
+    desired.freq = AUDIO_FREQUENCY;
+    desired.format = AUDIO_S16SYS;
+    desired.channels = AUDIO_CHANNELS;
+    desired.samples = AUDIO_SAMPLES;
+    SDL_AudioDeviceID audioDevice = SDL_OpenAudioDevice(nullptr, 0, &desired, nullptr, 0);
+    if (!audioDevice) {
+        std::cerr << "SDL_OpenAudioDevice failed: " << SDL_GetError() << '\n';
+        SDL_DestroyTexture(texture);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        return 1;
+    }
+    SDL_PauseAudioDevice(audioDevice, 0);
+
+    bool running = true;
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = false;
+            } else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                gba.keyState = {};
+            } else if (event.type == SDL_KEYDOWN) {
+                const bool command = (event.key.keysym.mod & KMOD_GUI) != 0;
+                if (command && event.key.keysym.sym == SDLK_q) {
+                    running = false;
+                } else if (command && event.key.keysym.sym == SDLK_r && !event.key.repeat) {
+                    gba.reset();
+                    SDL_ClearQueuedAudio(audioDevice);
+                } else if (!command) {
+                    updateKeyState(&gba.keyState, event.key.keysym.sym, true);
+                }
+            } else if (event.type == SDL_KEYUP) {
+                updateKeyState(&gba.keyState, event.key.keysym.sym, false);
+            }
+        }
+        if (!running) {
+            break;
+        }
+
+        gba.tick();
+
+        size_t soundSize = 0;
+        uint16_t* sound = gba.dequeSound(&soundSize);
+        if (sound && soundSize) {
+            if (SDL_QueueAudio(audioDevice, sound, static_cast<Uint32>(soundSize)) != 0) {
+                std::cerr << "SDL_QueueAudio failed: " << SDL_GetError() << '\n';
+                running = false;
+            }
+        }
+
+        if (SDL_UpdateTexture(
+                texture,
+                nullptr,
+                gba.getVram(),
+                gba.getVramWidth() * static_cast<int>(sizeof(uint32_t))) != 0) {
+            std::cerr << "SDL_UpdateTexture failed: " << SDL_GetError() << '\n';
+            running = false;
+        }
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+        SDL_RenderPresent(renderer);
+
+        while (SDL_GetAudioDeviceStatus(audioDevice) == SDL_AUDIO_PLAYING &&
+               SDL_GetQueuedAudioSize(audioDevice) > TARGET_QUEUED_AUDIO_SIZE) {
+            SDL_Delay(1);
+        }
+    }
+
+    SDL_PauseAudioDevice(audioDevice, 1);
+    SDL_CloseAudioDevice(audioDevice);
+    SDL_DestroyTexture(texture);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+
     return 0;
 }

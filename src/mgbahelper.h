@@ -19,6 +19,19 @@ class mGBAHelper
     std::vector<uint16_t> dequeuedSound;
 
   public:
+    struct KeyState {
+        bool up;     // true: pushing, false: released
+        bool down;   // true: pushing, false: released
+        bool left;   // true: pushing, false: released
+        bool right;  // true: pushing, false: released
+        bool a;      // true: pushing, false: released
+        bool b;      // true: pushing, false: released
+        bool start;  // true: pushing, false: released
+        bool select; // true: pushing, false: released
+        bool l;      // true: pushing, false: released
+        bool r;      // true: pushing, false: released
+    } keyState;
+
     mGBAHelper();
     ~mGBAHelper();
 
