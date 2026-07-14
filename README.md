@@ -10,6 +10,16 @@
 
 **「既存GBAソフトを動かす」のではなく「新規で開発するGBAソフト」がターゲット** です。
 
+## WIP status
+
+- [x] macOS build (macOS + SDL2 で GBA のゲームを動かす)
+- [ ] Linux build (Linux + SDL2 で GBA のゲームを動かす)
+- [ ] Windows build (Windows + DirectX で GBA のゲームを動かす)
+- [ ] Replay API (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
+- [ ] Steam Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
+- [ ] Steam Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
+- [ ] ライセンス精査
+
 ## How to Build
 
 > 現在、暫定的に macOS でのみビルドできます。
