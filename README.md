@@ -4,9 +4,9 @@
 
 エミュレータコアには mGBA を用いています。
 
-そして、GBA ソフトで Steamworks SDK の Leaderboard と Achievement やアプリ終了機能のインタフェースを提供する API を提供します。
+そして、GBA ソフトで Steamworks SDK の Leaderboard と Achievement やアプリ終了機能のインタフェースを提供する SDK を提供します。
 
-> なお、本APIを用いた GBA ソフトは実機 GBA 上では動作できません。
+> なお、本SDKのAPIを用いた GBA ソフトは実機 GBA 上では動作できません。
 
 **「既存GBAソフトを動かす」のではなく「新規で開発するGBAソフト」がターゲット** です。
 
@@ -20,11 +20,9 @@
 - [ ] Steam Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
 - [ ] ライセンス精査
 
-## How to Build
+## How to Test
 
-> 現在、暫定的に macOS でのみビルドできます。
->
-> ※ Linux と Windows のビルドにも対応予定
+### Build
 
 ```bash
 git clone https://github.com/suzukiplan/mgba-steam
@@ -32,10 +30,10 @@ cd mgba-steam
 make
 ```
 
-## How to Use
+### Execute
 
 ```bash
-./sdlmain /path/to/game.gba
+./game /path/to/game.gba
 ```
 
 - カーソルキー: D-pad
@@ -47,3 +45,11 @@ make
 - Space: Startボタン
 - ⌘+R: リセット
 - ⌘+Q: 電源OFF
+
+## How to make the Package
+
+todo
+
+## License
+
+todo

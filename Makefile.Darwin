@@ -2,7 +2,7 @@ CXX ?= clang++
 CMAKE ?= cmake
 SDL2_CONFIG ?= sdl2-config
 
-TARGET := sdlmain
+TARGET := game
 BUILD_DIR := build/Darwin
 MGBA_BUILD_DIR := $(BUILD_DIR)/mgba
 MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.dylib

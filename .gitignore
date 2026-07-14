@@ -1,6 +1,6 @@
 build/**
 vgsx/**
-sdlmain
+game
 vram.bmp
 sdk/Readme.txt
 sdk/public/**
