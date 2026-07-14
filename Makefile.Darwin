@@ -5,16 +5,17 @@ SDL2_CONFIG ?= sdl2-config
 TARGET := sdlmain
 BUILD_DIR := build/Darwin
 MGBA_BUILD_DIR := $(BUILD_DIR)/mgba
-MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.a
+MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.dylib
 SOURCES := src/mgbahelper.cpp src/sdlmain.cpp
 OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
 DEPFILES := $(OBJECTS:.o=.d)
 
 CPPFLAGS := -I./src -I./mgba/include -I$(MGBA_BUILD_DIR)/include \
 	$(shell $(SDL2_CONFIG) --cflags) \
-	-DBUILD_STATIC -DENABLE_DIRECTORIES -DENABLE_VFS
+	-DENABLE_DIRECTORIES -DENABLE_VFS
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic -MMD -MP
+LDFLAGS += -Wl,-rpath,@executable_path/$(MGBA_BUILD_DIR)
 LDLIBS := $(MGBA_LIBRARY) $(shell $(SDL2_CONFIG) --libs) -framework Foundation -pthread
 
 .PHONY: all clean mgba
@@ -22,7 +23,7 @@ LDLIBS := $(MGBA_LIBRARY) $(shell $(SDL2_CONFIG) --libs) -framework Foundation -
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS) $(MGBA_LIBRARY)
-	$(CXX) $(CXXFLAGS) $(OBJECTS) $(LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(OBJECTS) $(LDLIBS) -o $@
 
 $(BUILD_DIR)/%.o: src/%.cpp | $(MGBA_LIBRARY)
 	@mkdir -p $(dir $@)
@@ -30,11 +31,19 @@ $(BUILD_DIR)/%.o: src/%.cpp | $(MGBA_LIBRARY)
 
 $(MGBA_LIBRARY): mgba/CMakeLists.txt
 	$(CMAKE) -S mgba -B $(MGBA_BUILD_DIR) \
-		-DLIBMGBA_ONLY=ON \
+		-DLIBMGBA_ONLY=OFF \
+		-DDISABLE_FRONTENDS=ON \
+		-DDISABLE_DEPS=ON \
+		-DENABLE_DEBUGGERS=OFF \
+		-DENABLE_SCRIPTING=OFF \
+		-DUSE_LZMA=OFF \
 		-DM_CORE_GBA=ON \
 		-DM_CORE_GB=OFF \
-		-DBUILD_SHARED=OFF \
-		-DBUILD_STATIC=ON \
+		-DBUILD_GL=OFF \
+		-DBUILD_GLES2=OFF \
+		-DBUILD_GLES3=OFF \
+		-DBUILD_SHARED=ON \
+		-DBUILD_STATIC=OFF \
 		-DBUILD_LTO=OFF \
 		-DCMAKE_BUILD_TYPE=Release
 	$(CMAKE) --build $(MGBA_BUILD_DIR) --target mgba --parallel
