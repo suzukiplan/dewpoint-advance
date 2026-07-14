@@ -18,7 +18,9 @@
 - [ ] Replay API (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
 - [ ] Steam Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
 - [ ] Steam Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
+- [ ] パッケージ作成手順の実装
 - [ ] ライセンス精査
+- [ ] リポジトリのpublic化
 
 ## How to Test
 
