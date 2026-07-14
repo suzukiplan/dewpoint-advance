@@ -2,9 +2,9 @@ build/**
 vgsx/**
 game
 vram.bmp
-sdk/Readme.txt
-sdk/public/**
-sdk/steamworksexample/**
-sdk/glmgr/**
-sdk/redistributable_bin/**
-sdk/tools/**
+steamworks/Readme.txt
+steamworks/public/**
+steamworks/steamworksexample/**
+steamworks/glmgr/**
+steamworks/redistributable_bin/**
+steamworks/tools/**

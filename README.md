@@ -1,6 +1,6 @@
 # Dewpoint Advance **<WIP>**
 
-Dewpoint Advance は、自作の GBA ソフトを Steam で頒布する目的に特化したエミュレータフロントエンドです。
+Dewpoint Advance (DPA) は、自作の GBA ソフトを Steam で頒布する目的に特化したエミュレータフロントエンドです。
 
 エミュレータコアには mGBA を用いています。
 
@@ -31,8 +31,17 @@ flowchart LR
     STEAMWORKS -->|"Achievements / Leaderboards"| STEAM
 ```
 
-> なお、本SDKのAPIを用いた GBA ソフトは実機 GBA 上では動作できません。
-> **「既存GBAソフトを動かす」のではなく「新規で開発するGBAソフト」がターゲット** です。
+なお、本SDKのAPIを用いた GBA ソフトは実機 GBA 上では動作できません。
+
+**「既存GBAソフトを動かすこと」が目的ではありません。**
+
+新規で開発するGBAソフトをSteamで手軽に配信したいデベロッパー/パブリッシャー向けの SDK です。
+
+**重要な補足事項:**
+
+- GameBoy および GameBoy Advance は任天堂の日本またはその他地域における登録商標です。ゲーム名に「for XXX」等をつけたい場合は任天堂からの許諾が必要になります。（ゲーム名 Advance 等の商標権を侵害しない命名を推奨します）
+- GameBoy または GameBoy Advance の BIOS 機能（MP2k等）は使用しないでください。
+- ROM ファイルに GameBoy または GameBoy Advance のヘッダー画像に任天堂が商標権や意匠権を有するデータは自動的にマスク処理されます。
 
 ## WIP status
 
@@ -46,7 +55,13 @@ flowchart LR
 - [ ] ライセンス精査
 - [ ] リポジトリのpublic化
 
-## How to Test
+## How to Use
+
+### Pre-request
+
+1. Valve と契約
+2. Steamworks SDK を入手
+3. [./steamworks](./steamworks/) ディレクトリ以下に `public` および `redistributable_bin` ディレクトリを配置
 
 ### Build
 
@@ -80,15 +95,21 @@ todo
 
 [./src](./src) ディレクトリ以下のソースコードは [MIT](./LICENSE.txt) ですが、最終的な成果物には次のライセンスが含まれます。
 
-- mGBA: [Mozilla Public License Version 2.0](./mgba/LICENSE)
+- [mGBA](https://mgba.io/)
+  - Copyright © 2013–2026 Vicki Pfau.
+  - License: [Mozilla Public License Version 2.0](./LICENSE_mGBA.txt)
 - [inih](https://github.com/benhoyt/inih)
   - Copyright © 2009 – 2020 Ben Hoyt
-  - License: BSD 3-clause
+  - [License: BSD 3-clause](./LICENSE_inih.txt)
 - [SDL2](https://www.libsdl.org/)
-  - Copyright (C) 1997-2025 Sam Lantinga slouken@libsdl.org
-  - License: ZLIB
-- [Steam Advance SDK](https://github.com/suzukiplan/mgba-steam)
+  - Copyright © 1997-2025 Sam Lantinga slouken@libsdl.org
+  - License: [ZLIB](./LICENSE-SDL2.txt)
+- [Dewpoint Advance](https://github.com/suzukiplan/dewpoint-advance)
   - Copyright © 2026 SUZUKI PLAN
-  - License: [MIT](./LICENSE.txt)
+  - License: [MIT](./LICENSE_DPA.txt)
 
-mGBA 作者からソースコードの開示を求められた場合、[本リポジトリ](https://github.com/suzukiplan/mgba-steam)を案内してください。
+mGBA 作者からソースコードの開示を求められた場合、[本リポジトリ](https://github.com/suzukiplan/dewpoint-advance)を案内してください。
+
+> もしも、家庭用ゲーム機（任天堂Switch、PlayStationなど）に対応される場合、それら家庭用ゲーム機SDK向けに Dewpoint Runtime (MITライセンス) を移植する必要があります。
+>
+> なお、mGBA本体の実装をカスタマイズする必要がある場合、MPL2.0ライセンス契約に準拠した対応が別途必要になります。
