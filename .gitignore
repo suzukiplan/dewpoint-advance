@@ -2,4 +2,9 @@ build/**
 vgsx/**
 sdlmain
 vram.bmp
-
+sdk/Readme.txt
+sdk/public/**
+sdk/steamworksexample/**
+sdk/glmgr/**
+sdk/redistributable_bin/**
+sdk/tools/**
