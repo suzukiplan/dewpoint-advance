@@ -45,12 +45,12 @@ flowchart LR
 
 ## WIP status
 
-- [x] macOS build (macOS + SDL2 で GBA のゲームを動かす)
-- [ ] Linux build (Linux + SDL2 で GBA のゲームを動かす)
-- [ ] Windows build (Windows + DirectX で GBA のゲームを動かす)
-- [ ] Replay API (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
-- [ ] Steam Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
-- [ ] Steam Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
+- [x] macOS Runtime (macOS + SDL2 で GBA のゲームを動かす)
+- [ ] Linux Runtime (Linux + SDL2 で GBA のゲームを動かす)
+- [ ] Windows Runtime (Windows + DirectX で GBA のゲームを動かす)
+- [ ] SDK: Replay API for GBA (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
+- [ ] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
+- [ ] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
 - [ ] パッケージ作成手順の実装
 - [ ] ライセンス精査
 - [ ] リポジトリのpublic化
