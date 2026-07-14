@@ -1,14 +1,38 @@
-# Steam Advance SDK **<WIP>**
+# Dewpoint Advance **<WIP>**
 
-このリポジトリは、自作の GBA ソフトを Steam で頒布する目的に特化したエミュレータフロントエンドです。
+Dewpoint Advance は、自作の GBA ソフトを Steam で頒布する目的に特化したエミュレータフロントエンドです。
 
 エミュレータコアには mGBA を用いています。
 
 そして、GBA ソフトで Steamworks SDK の Leaderboard と Achievement やアプリ終了機能のインタフェースを提供する SDK を提供します。
 
-> なお、本SDKのAPIを用いた GBA ソフトは実機 GBA 上では動作できません。
+```mermaid
+flowchart LR
+    subgraph GBA["GBA ROM（Closed Source）"]
+        GAME["GBA Game"]
+        SDK["Dewpoint Advance SDK<br/>《component》"]
 
-**「既存GBAソフトを動かす」のではなく「新規で開発するGBAソフト」がターゲット** です。
+        GAME -->|"Achievement / Leaderboard API"| SDK
+    end
+
+    subgraph HOST["Host Application"]
+        RUNTIME["Dewpoint Runtime<br/>《component》"]
+        MGBA["mGBA<br/>Shared Library / DLL<br/>《component》"]
+        STEAMWORKS["Steamworks SDK<br/>《external component》"]
+
+        RUNTIME -->|"Emulation API"| MGBA
+        RUNTIME -->|"Steam API calls"| STEAMWORKS
+    end
+
+    STEAM["Steam Services<br/>《external system》"]
+
+    SDK -.->|"Dewpoint Bridge<br/>Custom GBA Interface"| RUNTIME
+    MGBA -->|"Loads and executes"| GAME
+    STEAMWORKS -->|"Achievements / Leaderboards"| STEAM
+```
+
+> なお、本SDKのAPIを用いた GBA ソフトは実機 GBA 上では動作できません。
+> **「既存GBAソフトを動かす」のではなく「新規で開発するGBAソフト」がターゲット** です。
 
 ## WIP status
 
@@ -27,8 +51,8 @@
 ### Build
 
 ```bash
-git clone https://github.com/suzukiplan/mgba-steam
-cd mgba-steam
+git clone https://github.com/suzukiplan/dewpoint-advance
+cd dewpoint-advance
 make
 ```
 
