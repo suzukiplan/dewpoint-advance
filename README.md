@@ -50,6 +50,19 @@ make
 
 todo
 
-## License
+## OSS Licenses
 
-todo
+[./src](./src) ディレクトリ以下のソースコードは [MIT](./LICENSE.txt) ですが、最終的な成果物には次のライセンスが含まれます。
+
+- mGBA: [Mozilla Public License Version 2.0](./mgba/LICENSE)
+- [inih](https://github.com/benhoyt/inih)
+  - Copyright © 2009 – 2020 Ben Hoyt
+  - License: BSD 3-clause
+- [SDL2](https://www.libsdl.org/)
+  - Copyright (C) 1997-2025 Sam Lantinga slouken@libsdl.org
+  - License: ZLIB
+- [Steam Advance SDK](https://github.com/suzukiplan/mgba-steam)
+  - Copyright © 2026 SUZUKI PLAN
+  - License: [MIT](./LICENSE.txt)
+
+mGBA 作者からソースコードの開示を求められた場合、[本リポジトリ](https://github.com/suzukiplan/mgba-steam)を案内してください。
