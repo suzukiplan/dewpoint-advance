@@ -54,14 +54,14 @@ flowchart LR
 - [ ] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
 - [ ] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
 - [ ] パッケージ作成手順の実装
-- [ ] ライセンス精査
-- [ ] リポジトリのpublic化
+- [x] ライセンス精査
+- [x] リポジトリのpublic化
 
 ## How to Use
 
 ### Pre-request
 
-1. Valve と契約
+1. Valve と Steam 配信契約を締結
 2. Steamworks SDK を入手
 3. [./steamworks](./steamworks/) ディレクトリ以下に `public` および `redistributable_bin` ディレクトリを配置
 
@@ -88,6 +88,29 @@ make
 - Space: Startボタン
 - ⌘+R: リセット
 - ⌘+Q: 電源OFF
+
+## Dewpoint SDK
+
+- [devkitPro](https://github.com/devkitPro/) で作成したGBAのプロジェクトに利用できます。
+- ソースコードディレクトリに [./sdk/](./sdk/) 以下のファイルをコピーしてください。
+- `#include "dpa.h"` で使用できます。
+
+| API | Description |
+|:----|:------------|
+| `dpa_achievement_unlock` | アチーブメントをアンロック |
+| `dpa_leaderboard_send` | スコアを送信 |
+| `dpa_leaderboard_ready` | リーダーボードからエントリが取得可能か確認 |
+| `dpa_leaderboard_get` | リーダーボードからTop100のエントリを取得 |
+| `dpa_leaderboard_getm` | リーダーボードから自分のエントリを取得 |
+| `dpa_ugc_clear` | UGC データをクリア |
+| `dpa_ugc_append` | UGC に 4bytes のデータを追加 |
+| `dpa_ugc_download` | UGC データのダウンロードを開始 |
+| `dpa_ugc_size` | UGC データのサイズ取得（ダウンロード完了確認） |
+| `dpa_ugc_read` | UGC データを 4bytes 読み込む |
+
+詳細な仕様は [./sdk/dpa.h](./sdk/dpa.h) の実装をチェックしてください。
+
+> devkitPro を用いたゲーム開発には [GBA SDK for port from VGS-Zero](https://github.com/suzukiplan/gbasdk) などが便利です。
 
 ## How to make the Package
 
