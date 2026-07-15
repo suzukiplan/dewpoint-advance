@@ -177,7 +177,7 @@ todo
   - Copyright © 2026 SUZUKI PLAN
   - License: [MIT](./LICENSE_DPA.txt)
 
-mGBA 作者からソースコードの開示を求められた場合、[本リポジトリ](https://github.com/suzukiplan/dewpoint-advance)を案内してください。
+ソースコードの開示を求められた場合、[本リポジトリ](https://github.com/suzukiplan/dewpoint-advance)を案内してください。_（**重要:** ゲームのソースコードは開示する必要がありません）_
 
 > もしも、家庭用ゲーム機（任天堂Switch、PlayStationなど）に対応される場合、それら家庭用ゲーム機SDK向けに Dewpoint Runtime (MITライセンス) を移植する必要があります。
 >
