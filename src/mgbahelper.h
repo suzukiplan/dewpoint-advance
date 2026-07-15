@@ -26,6 +26,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #define GBA_VRAM_WIDTH 240
@@ -49,6 +50,7 @@ class mGBAHelper
 
     Impl* impl;
     DewpointBridge* dewpointBridge;
+    std::string sramPath;
     uint32_t vram[GBA_VRAM_WIDTH * GBA_VRAM_HEIGHT];
     std::vector<uint16_t> soundQueue;
     std::vector<uint16_t> dequeuedSound;
@@ -80,6 +82,18 @@ class mGBAHelper
      * @return true: succeed, false: failed
      */
     bool load(const void* data, size_t size);
+
+    /**
+     * @brief Set the path used to load and save SRAM
+     * @param path SRAM file path, or an empty string to disable persistence
+     */
+    void setSramPath(const std::string& path);
+
+    /**
+     * @brief Save SRAM to the configured path
+     * @return true: succeed, false: no SRAM/path or write failed
+     */
+    bool saveSram();
 
     /**
      * @brief Reset

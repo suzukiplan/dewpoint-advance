@@ -73,6 +73,12 @@ class ScopedSdl
     ScopedSdl()
         : initialized(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) == 0)
     {
+        if (initialized) {
+            // SDL2 enables text input on desktop by default. This runtime only
+            // handles game controls, so keep macOS from opening its accent menu
+            // when a letter key is held down.
+            SDL_StopTextInput();
+        }
     }
 
     ~ScopedSdl()
@@ -122,20 +128,38 @@ int main(int argc, char* argv[])
 {
     ScopedLogger logger;
 
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <rom.gba>\n";
+    std::string romPath;
+    std::string sramPath = "save.dat";
+    for (int i = 1; i < argc; ++i) {
+        const std::string argument = argv[i];
+        if (argument == "-s") {
+            if (++i >= argc) {
+                std::cerr << "Usage: " << argv[0] << " [-s <save.dat>] <rom.gba>\n";
+                return 1;
+            }
+            sramPath = argv[i];
+        } else if (!romPath.empty()) {
+            std::cerr << "Usage: " << argv[0] << " [-s <save.dat>] <rom.gba>\n";
+            return 1;
+        } else {
+            romPath = argument;
+        }
+    }
+    if (romPath.empty()) {
+        std::cerr << "Usage: " << argv[0] << " [-s <save.dat>] <rom.gba>\n";
         return 1;
     }
 
     std::vector<uint8_t> rom;
-    if (!readFile(argv[1], &rom)) {
-        std::cerr << "Failed to read GBA ROM: " << argv[1] << '\n';
+    if (!readFile(romPath.c_str(), &rom)) {
+        std::cerr << "Failed to read GBA ROM: " << romPath << '\n';
         return 1;
     }
 
     mGBAHelper gba;
+    gba.setSramPath(sramPath);
     if (!gba.load(rom.data(), rom.size())) {
-        std::cerr << "Failed to load GBA ROM: " << argv[1] << '\n';
+        std::cerr << "Failed to load GBA ROM: " << romPath << '\n';
         return 1;
     }
 

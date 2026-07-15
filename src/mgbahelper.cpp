@@ -26,7 +26,11 @@
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <limits>
 #include <new>
 #include <vector>
 
@@ -339,6 +343,7 @@ mGBAHelper::mGBAHelper()
 
 mGBAHelper::~mGBAHelper()
 {
+    saveSram();
     delete impl;
 }
 
@@ -384,6 +389,40 @@ bool mGBAHelper::load(const void* data, size_t size)
         return false;
     }
 
+    if (!sramPath.empty()) {
+        std::ifstream input(sramPath, std::ios::binary | std::ios::ate);
+        if (input) {
+            const std::streamsize sramSize = input.tellg();
+            if (sramSize < 0 || static_cast<uintmax_t>(sramSize) > std::numeric_limits<size_t>::max()) {
+                delete next;
+                return false;
+            }
+
+            std::vector<uint8_t> sram(static_cast<size_t>(sramSize));
+            input.seekg(0);
+            if (sramSize > 0 && !input.read(reinterpret_cast<char*>(sram.data()), sramSize)) {
+                delete next;
+                return false;
+            }
+
+            VFile* save = VFileMemChunk(sram.data(), sram.size());
+            if (!save || !next->core->loadSave(next->core, save)) {
+                if (save) {
+                    save->close(save);
+                }
+                delete next;
+                return false;
+            }
+        } else {
+            std::error_code error;
+            const bool exists = std::filesystem::exists(sramPath, error);
+            if (error || exists) {
+                delete next;
+                return false;
+            }
+        }
+    }
+
     next->initializeAudio();
     next->core->reset(next->core);
     next->dewpointBridge = dewpointBridge;
@@ -399,6 +438,37 @@ bool mGBAHelper::load(const void* data, size_t size)
     std::memset(vram, 0, sizeof(vram));
     impl->core->setVideoBuffer(impl->core, reinterpret_cast<mColor*>(vram), GBA_VRAM_WIDTH);
     return true;
+}
+
+void mGBAHelper::setSramPath(const std::string& path)
+{
+    sramPath = path;
+}
+
+bool mGBAHelper::saveSram()
+{
+    if (!impl || sramPath.empty()) {
+        return false;
+    }
+
+    void* data = nullptr;
+    const size_t size = impl->core->savedataClone(impl->core, &data);
+    if (!data || !size) {
+        std::free(data);
+        return false;
+    }
+
+    std::ofstream output(sramPath, std::ios::binary | std::ios::trunc);
+    if (!output || size > static_cast<size_t>(std::numeric_limits<std::streamsize>::max())) {
+        std::free(data);
+        return false;
+    }
+
+    output.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
+    output.flush();
+    const bool succeeded = static_cast<bool>(output);
+    std::free(data);
+    return succeeded;
 }
 
 void mGBAHelper::reset()
