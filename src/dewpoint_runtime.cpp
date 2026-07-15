@@ -40,6 +40,8 @@ enum DpaIndex : uint32_t {
     DpaIndexUgcSize,
     DpaIndexUgcReadPtr,
     DpaIndexUgcRead,
+    DpaIndexExit,
+    DpaIndexFullScreen,
 };
 
 struct GuestLeaderboardEntry {
@@ -82,7 +84,12 @@ struct DewpointRuntime::Impl {
 
     mGBAHelper& gba;
     Logger logger;
+    FullscreenSetter fullscreenSetter;
+    FullscreenGetter fullscreenGetter;
     bool steamInitialized;
+    bool fullscreen;
+    bool exitRequested;
+    int exitCode;
     int selectedBoardId;
     bool sendUgc;
     uint32_t guestEntryAddress;
@@ -99,8 +106,9 @@ struct DewpointRuntime::Impl {
     std::unordered_map<uint32_t, EntryReference> entryReferences;
 
     Impl(mGBAHelper& gba, Logger logger)
-        : gba(gba), logger(std::move(logger)), steamInitialized(false), selectedBoardId(-1), sendUgc(false),
-          guestEntryAddress(0), ugcReadIndex(0), ugcDownloadSize(0), protocolGeneration(0),
+        : gba(gba), logger(std::move(logger)), steamInitialized(false), fullscreen(false), exitRequested(false),
+          exitCode(0), selectedBoardId(-1), sendUgc(false), guestEntryAddress(0), ugcReadIndex(0),
+          ugcDownloadSize(0), protocolGeneration(0),
           achievementOverflow(false), ugcUploadOverflow(false), boardInitializationAttempted{}
     {
     }
@@ -301,13 +309,36 @@ void DewpointRuntime::tick()
     }
 }
 
+void DewpointRuntime::setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter)
+{
+    impl->fullscreenSetter = std::move(setter);
+    impl->fullscreenGetter = std::move(getter);
+    if (impl->fullscreenGetter) {
+        impl->fullscreen = impl->fullscreenGetter();
+    }
+}
+
+bool DewpointRuntime::takeExitRequest(int* exitCode)
+{
+    if (!impl->exitRequested) {
+        return false;
+    }
+    if (exitCode) {
+        *exitCode = impl->exitCode;
+    }
+    impl->exitRequested = false;
+    return true;
+}
+
 uint32_t DewpointRuntime::readRegister(uint32_t index)
 {
-    if (!impl->steamInitialized) {
-        return 0;
-    }
     switch (index) {
         case DpaIndexId: return DPMID;
+        case DpaIndexFullScreen:
+            if (impl->fullscreenGetter) {
+                impl->fullscreen = impl->fullscreenGetter();
+            }
+            return impl->fullscreen ? 1 : 0;
         case DpaIndexBoardReady: {
             CSteamLeaderboardHelper* board = impl->getBoard(impl->selectedBoardId, true);
             return board && board->isReady() ? 1 : 0;
@@ -320,6 +351,18 @@ uint32_t DewpointRuntime::readRegister(uint32_t index)
 
 void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
 {
+    if (index == DpaIndexExit) {
+        if (!impl->exitRequested) {
+            impl->exitRequested = true;
+            impl->exitCode = static_cast<int32_t>(value);
+        }
+        return;
+    }
+    if (index == DpaIndexFullScreen) {
+        const bool requested = value != 0;
+        impl->fullscreen = impl->fullscreenSetter ? impl->fullscreenSetter(requested) : requested;
+        return;
+    }
     if (!impl->steamInitialized) {
         return;
     }

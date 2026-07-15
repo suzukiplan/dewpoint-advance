@@ -162,6 +162,17 @@ int main(int argc, char* argv[])
         std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
         return 1;
     }
+    dewpoint.setFullscreenCallbacks(
+        [window](bool fullscreen) {
+            const Uint32 flags = fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
+            if (SDL_SetWindowFullscreen(window, flags) != 0) {
+                std::cerr << "SDL_SetWindowFullscreen failed: " << SDL_GetError() << '\n';
+            }
+            return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+        },
+        [window]() {
+            return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+        });
 
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) {
@@ -203,6 +214,7 @@ int main(int argc, char* argv[])
     SDL_PauseAudioDevice(audioDevice, 0);
 
     bool running = true;
+    int exitCode = 0;
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -230,6 +242,10 @@ int main(int argc, char* argv[])
 
         dewpoint.tick();
         gba.tick();
+        if (dewpoint.takeExitRequest(&exitCode)) {
+            running = false;
+            break;
+        }
 
         size_t soundSize = 0;
         uint16_t* sound = gba.dequeSound(&soundSize);
@@ -265,5 +281,5 @@ int main(int argc, char* argv[])
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
 
-    return 0;
+    return exitCode;
 }

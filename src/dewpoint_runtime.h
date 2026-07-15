@@ -15,6 +15,8 @@ class DewpointRuntime final : public DewpointBridge
 {
   public:
     using Logger = std::function<void(const char*)>;
+    using FullscreenSetter = std::function<bool(bool)>;
+    using FullscreenGetter = std::function<bool()>;
 
     explicit DewpointRuntime(mGBAHelper& gba, Logger logger = {});
     ~DewpointRuntime() override;
@@ -24,6 +26,9 @@ class DewpointRuntime final : public DewpointBridge
 
     bool initialize();
     void tick();
+
+    void setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter);
+    bool takeExitRequest(int* exitCode);
 
     uint32_t readRegister(uint32_t index) override;
     void writeRegister(uint32_t index, uint32_t value) override;

@@ -100,3 +100,22 @@ int dpa_ugc_size(void);
  * @return UGCデータ (指定indexにデータが無い場合は -1 を返す)
  */
 int32_t dpa_ugc_read(int index);
+
+/**
+ * @brief プロセス終了（実機の場合はハングアップ）
+ * @param exit_code 終了コード
+ */
+void dpa_exit(int exit_code);
+
+/**
+ * @brief フルスクリーン/Windowの切り替え
+ * @param full_screen 0: Window, not 0: Full Screen
+ * @return 0: Window, not 0: Full Screen
+ */
+int dpa_fullscreen_set(int full_screen);
+
+/**
+ * @brief フルスクリーン/Windowの状態取得
+ * @return 0: Window, not 0: Full Screen
+ */
+int dpa_fullscreen_get(void);

@@ -41,6 +41,8 @@ enum DpaIndex {
     DpaIndexUgcSize,       // [I] UGC データのサイズを取得
     DpaIndexUgcReadPtr,    // [O] UGC データの読み込み位置を設定
     DpaIndexUgcRead,       // [I] UGC データの読み込み
+    DpaIndexExit,          // [O] プロセス停止 (exit)
+    DpaIndexFullScreen,    // [I/O] フルスクリーン (0: Window / not 0: Full Screen)
 };
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
@@ -138,4 +140,30 @@ int32_t dpa_ugc_read(int index)
     }
     _dpa[DpaIndexUgcReadPtr] = (uint32_t)index;
     return (int32_t)_dpa[DpaIndexUgcRead];
+}
+
+void dpa_exit(int exit_code)
+{
+    if (dpa_is_enabled()) {
+        _dpa[DpaIndexExit] = (uint32_t)exit_code;
+    }
+    for (;;) {
+    }
+}
+
+int dpa_fullscreen_set(int full_screen)
+{
+    if (!dpa_is_enabled()) {
+        return 0;
+    }
+    _dpa[DpaIndexFullScreen] = full_screen ? 1 : 0;
+    return dpa_fullscreen_get();
+}
+
+int dpa_fullscreen_get(void)
+{
+    if (!dpa_is_enabled()) {
+        return 0;
+    }
+    return _dpa[DpaIndexFullScreen] ? 1 : 0;
 }
