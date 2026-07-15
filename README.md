@@ -50,7 +50,7 @@ flowchart
 - [x] macOS Runtime (macOS + SDL2 で GBA のゲームを動かす)
 - [ ] Linux Runtime (Linux + SDL2 で GBA のゲームを動かす)
 - [ ] Windows Runtime (Windows + DirectX で GBA のゲームを動かす)
-- [ ] SDK: Replay API for GBA (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
+- [x] SDK: Replay API for GBA (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
 - [x] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
 - [x] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
 - [ ] パッケージ作成手順の実装
