@@ -32,12 +32,23 @@
 #define GBA_VRAM_HEIGHT 160
 #define GBA_SOUND_QUEUE_SIZE 65536
 
+class DewpointBridge
+{
+  public:
+    virtual ~DewpointBridge() = default;
+
+    virtual uint32_t readRegister(uint32_t index) = 0;
+    virtual void writeRegister(uint32_t index, uint32_t value) = 0;
+    virtual void reset() = 0;
+};
+
 class mGBAHelper
 {
   private:
     struct Impl;
 
     Impl* impl;
+    DewpointBridge* dewpointBridge;
     uint32_t vram[GBA_VRAM_WIDTH * GBA_VRAM_HEIGHT];
     std::vector<uint16_t> soundQueue;
     std::vector<uint16_t> dequeuedSound;
@@ -74,6 +85,18 @@ class mGBAHelper
      * @brief Reset
      */
     void reset();
+
+    /**
+     * @brief Attach the Dewpoint memory-mapped I/O bridge
+     * @param bridge Bridge instance, or nullptr to detach
+     */
+    void setDewpointBridge(DewpointBridge* bridge);
+
+    /**
+     * @brief Write data to a validated GBA work RAM address
+     * @return true: written, false: invalid address or no loaded core
+     */
+    bool writeGuestMemory(uint32_t address, const void* data, size_t size);
 
     /**
      * @brief Execute 1 frame

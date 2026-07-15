@@ -30,6 +30,9 @@
 
 #include <mgba/core/config.h>
 #include <mgba/core/core.h>
+#include <mgba/core/cpu.h>
+#include <mgba/internal/arm/arm.h>
+#include <mgba/internal/gba/gba.h>
 #include <mgba/internal/gba/input.h>
 #include <mgba-util/audio-buffer.h>
 #include <mgba-util/audio-resampler.h>
@@ -41,10 +44,26 @@ namespace
 constexpr unsigned OUTPUT_SAMPLE_RATE = 44100;
 constexpr size_t AUDIO_BUFFER_FRAMES = 2048;
 constexpr size_t AUDIO_CHANNELS = 2;
+constexpr uint32_t DEWPOINT_BASE = 0x04801000;
+constexpr uint32_t DEWPOINT_REGISTER_COUNT = 15;
+constexpr uint32_t DEWPOINT_END = DEWPOINT_BASE + DEWPOINT_REGISTER_COUNT * sizeof(uint32_t);
+constexpr uint32_t DEWPOINT_COMPONENT_ID = 0x44505754; // "DPWT"
+
+bool isDewpointAddress(uint32_t address)
+{
+    return address >= DEWPOINT_BASE && address < DEWPOINT_END && (address & 3) == 0;
+}
 } // namespace
 
 struct mGBAHelper::Impl {
+    struct BridgeComponent {
+        mCPUComponent d;
+        Impl* owner;
+    } bridgeComponent;
+
     mCore* core;
+    ARMMemory originalMemory;
+    DewpointBridge* dewpointBridge;
     mAudioBuffer resampledAudio;
     mAudioResampler resampler;
     bool coreInitialized;
@@ -52,12 +71,16 @@ struct mGBAHelper::Impl {
     bool audioInitialized;
 
     Impl()
-        : core(nullptr), coreInitialized(false), configInitialized(false), audioInitialized(false)
+        : bridgeComponent{}, core(nullptr), originalMemory{}, dewpointBridge(nullptr), coreInitialized(false),
+          configInitialized(false), audioInitialized(false)
     {
+        bridgeComponent.d.id = DEWPOINT_COMPONENT_ID;
+        bridgeComponent.owner = this;
     }
 
     ~Impl()
     {
+        uninstallBridge();
         if (audioInitialized) {
             mAudioResamplerDeinit(&resampler);
             mAudioBufferDeinit(&resampledAudio);
@@ -69,6 +92,91 @@ struct mGBAHelper::Impl {
             if (coreInitialized) {
                 core->deinit(core);
             }
+        }
+    }
+
+    static Impl* findBridge(ARMCore* cpu)
+    {
+        if (!cpu || cpu->numComponents <= CPU_COMPONENT_MISC_1) {
+            return nullptr;
+        }
+        mCPUComponent* component = cpu->components[CPU_COMPONENT_MISC_1];
+        if (!component || component->id != DEWPOINT_COMPONENT_ID) {
+            return nullptr;
+        }
+        return reinterpret_cast<BridgeComponent*>(component)->owner;
+    }
+
+    static void addAccessCycles(ARMCore* cpu, int* cycleCounter, int cycles)
+    {
+        if (cycleCounter) {
+            *cycleCounter += cpu->memory.stall ? cpu->memory.stall(cpu, cycles) : cycles;
+        }
+    }
+
+    static uint32_t load32(ARMCore* cpu, uint32_t address, int* cycleCounter)
+    {
+        Impl* self = findBridge(cpu);
+        if (!self) {
+            return 0;
+        }
+        if (!isDewpointAddress(address)) {
+            return self->originalMemory.load32(cpu, address, cycleCounter);
+        }
+
+        // Match ordinary I/O reads: polling this bridge must prevent idle-loop removal.
+        reinterpret_cast<GBA*>(cpu->master)->haltPending = false;
+        addAccessCycles(cpu, cycleCounter, 2);
+        if (!self->dewpointBridge) {
+            return 0;
+        }
+        return self->dewpointBridge->readRegister((address - DEWPOINT_BASE) >> 2);
+    }
+
+    static void store32(ARMCore* cpu, uint32_t address, int32_t value, int* cycleCounter)
+    {
+        Impl* self = findBridge(cpu);
+        if (!self) {
+            return;
+        }
+        if (!isDewpointAddress(address)) {
+            self->originalMemory.store32(cpu, address, value, cycleCounter);
+            return;
+        }
+
+        addAccessCycles(cpu, cycleCounter, 1);
+        if (self->dewpointBridge) {
+            self->dewpointBridge->writeRegister((address - DEWPOINT_BASE) >> 2, static_cast<uint32_t>(value));
+        }
+    }
+
+    bool installBridge()
+    {
+        ARMCore* cpu = static_cast<ARMCore*>(core->cpu);
+        if (cpu->numComponents <= CPU_COMPONENT_MISC_1 || cpu->components[CPU_COMPONENT_MISC_1]) {
+            return false;
+        }
+        originalMemory = cpu->memory;
+        cpu->components[CPU_COMPONENT_MISC_1] = &bridgeComponent.d;
+        cpu->memory.load32 = load32;
+        cpu->memory.store32 = store32;
+        return true;
+    }
+
+    void uninstallBridge()
+    {
+        if (!core || !core->cpu) {
+            return;
+        }
+        ARMCore* cpu = static_cast<ARMCore*>(core->cpu);
+        if (cpu->memory.load32 == load32) {
+            cpu->memory.load32 = originalMemory.load32;
+        }
+        if (cpu->memory.store32 == store32) {
+            cpu->memory.store32 = originalMemory.store32;
+        }
+        if (cpu->numComponents > CPU_COMPONENT_MISC_1 && cpu->components[CPU_COMPONENT_MISC_1] == &bridgeComponent.d) {
+            cpu->components[CPU_COMPONENT_MISC_1] = nullptr;
         }
     }
 
@@ -90,7 +198,7 @@ struct mGBAHelper::Impl {
 };
 
 mGBAHelper::mGBAHelper()
-    : impl(nullptr), keyState{}
+    : impl(nullptr), dewpointBridge(nullptr), keyState{}
 {
     std::memset(vram, 0, sizeof(vram));
 }
@@ -144,6 +252,11 @@ bool mGBAHelper::load(const void* data, size_t size)
 
     next->initializeAudio();
     next->core->reset(next->core);
+    next->dewpointBridge = dewpointBridge;
+    if (!next->installBridge()) {
+        delete next;
+        return false;
+    }
 
     delete impl;
     impl = next;
@@ -161,10 +274,40 @@ void mGBAHelper::reset()
     }
 
     impl->core->reset(impl->core);
+    if (dewpointBridge) {
+        dewpointBridge->reset();
+    }
     impl->resetAudio();
     soundQueue.clear();
     dequeuedSound.clear();
     std::memset(vram, 0, sizeof(vram));
+}
+
+void mGBAHelper::setDewpointBridge(DewpointBridge* bridge)
+{
+    dewpointBridge = bridge;
+    if (impl) {
+        impl->dewpointBridge = bridge;
+    }
+}
+
+bool mGBAHelper::writeGuestMemory(uint32_t address, const void* data, size_t size)
+{
+    if (!impl || (!data && size)) {
+        return false;
+    }
+    const uint64_t end = static_cast<uint64_t>(address) + size;
+    const bool inEwram = address >= 0x02000000 && end <= 0x02040000;
+    const bool inIwram = address >= 0x03000000 && end <= 0x03008000;
+    if ((!inEwram && !inIwram) || end > UINT32_MAX + uint64_t{1}) {
+        return false;
+    }
+
+    const uint8_t* source = static_cast<const uint8_t*>(data);
+    for (size_t i = 0; i < size; ++i) {
+        impl->core->busWrite8(impl->core, address + static_cast<uint32_t>(i), source[i]);
+    }
+    return true;
 }
 
 void mGBAHelper::tick()

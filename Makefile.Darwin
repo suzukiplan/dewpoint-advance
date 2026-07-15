@@ -6,24 +6,30 @@ TARGET := game
 BUILD_DIR := build/Darwin
 MGBA_BUILD_DIR := $(BUILD_DIR)/mgba
 MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.dylib
-SOURCES := src/mgbahelper.cpp src/sdlmain.cpp
+STEAM_LIBRARY := steamworks/redistributable_bin/osx/libsteam_api.dylib
+STEAM_RUNTIME_LIBRARY := libsteam_api.dylib
+SOURCES := src/dewpoint_runtime.cpp src/mgbahelper.cpp src/sdlmain.cpp
 OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
 DEPFILES := $(OBJECTS:.o=.d)
 
-CPPFLAGS := -I./src -I./mgba/include -I$(MGBA_BUILD_DIR)/include \
+CPPFLAGS := -I./src -isystem ./mgba/include -isystem $(MGBA_BUILD_DIR)/include \
+	-isystem ./steamworks/public/steam \
 	$(shell $(SDL2_CONFIG) --cflags) \
 	-DENABLE_DIRECTORIES -DENABLE_VFS
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic -MMD -MP
 LDFLAGS += -Wl,-rpath,@executable_path/$(MGBA_BUILD_DIR)
-LDLIBS := $(MGBA_LIBRARY) $(shell $(SDL2_CONFIG) --libs) -framework Foundation -pthread
+LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) $(shell $(SDL2_CONFIG) --libs) -framework Foundation -pthread
 
 .PHONY: all clean mgba
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS) $(MGBA_LIBRARY)
+$(TARGET): $(OBJECTS) $(MGBA_LIBRARY) $(STEAM_RUNTIME_LIBRARY)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(OBJECTS) $(LDLIBS) -o $@
+
+$(STEAM_RUNTIME_LIBRARY): $(STEAM_LIBRARY)
+	cp -p $< $@
 
 $(BUILD_DIR)/%.o: src/%.cpp | $(MGBA_LIBRARY)
 	@mkdir -p $(dir $@)
@@ -51,6 +57,6 @@ $(MGBA_LIBRARY): mgba/CMakeLists.txt
 mgba: $(MGBA_LIBRARY)
 
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET) vram.bmp
+	rm -rf $(BUILD_DIR) $(TARGET) $(STEAM_RUNTIME_LIBRARY) vram.bmp
 
 -include $(DEPFILES)

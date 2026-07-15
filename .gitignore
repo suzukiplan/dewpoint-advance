@@ -1,6 +1,7 @@
 build/**
 vgsx/**
 game
+libsteam_api.dylib
 vram.bmp
 steamworks/Readme.txt
 steamworks/public/**

@@ -51,8 +51,8 @@ flowchart LR
 - [ ] Linux Runtime (Linux + SDL2 で GBA のゲームを動かす)
 - [ ] Windows Runtime (Windows + DirectX で GBA のゲームを動かす)
 - [ ] SDK: Replay API for GBA (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
-- [ ] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
-- [ ] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
+- [x] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
+- [x] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
 - [ ] パッケージ作成手順の実装
 - [x] ライセンス精査
 - [x] リポジトリのpublic化
@@ -111,6 +111,39 @@ make
 詳細な仕様は [./sdk/dpa.h](./sdk/dpa.h) の実装をチェックしてください。
 
 > devkitPro を用いたゲーム開発には [GBA SDK for port from VGS-Zero](https://github.com/suzukiplan/gbasdk) などが便利です。
+
+## Steamworks Settings
+
+### Steam Cloud
+
+Steamworks 設定の「アプリケーション」→「Steam クラウド」に次の設定をしてください:
+
+todo
+
+### Steam Input
+
+Steamworks 設定の「アプリケーション」→「Steam 入力」に次の設定をしてください:
+
+- コントローラにSteam入力を選択: `Xbox`, `PlayStation`, `Nintendo Switch` をチェック
+- Steam入力デフォルトコントローラ設定: `カスタム設定`
+  - マニフェストファイルパス: `action_manifest.vdf`
+
+### Steam Leaderboard
+
+Steamworks 設定の「データ＆実績」→「ランキング」に次のボードを追加してください:
+
+- 名前: `board0`, `board1`, `board2` および `board3`
+  - 単一のリーダーボードしか使用しない場合は `board0` だけでも問題ありません
+- ユーザーの前後の範囲: `0`
+- グローバルランキング上限: `100`
+
+上記以外の設定は任意です。
+
+> _NOTE: Dewpoint SDK で Leaderboard を使用しない場合、この設定は不要です。_
+
+### Steam Achievement
+
+Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_unlock` の引数に指定するテキストと一致する API名 で実績を登録してください。
 
 ## How to make the Package
 

@@ -22,6 +22,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include "dewpoint_runtime.h"
 #include "mgbahelper.h"
 
 #include <fstream>
@@ -138,6 +139,11 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    DewpointRuntime dewpoint(gba, [](const char* message) {
+        std::cerr << "[Steam] " << message << '\n';
+    });
+    dewpoint.initialize();
+
     ScopedSdl sdl;
     if (!sdl) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
@@ -222,6 +228,7 @@ int main(int argc, char* argv[])
             break;
         }
 
+        dewpoint.tick();
         gba.tick();
 
         size_t soundSize = 0;
