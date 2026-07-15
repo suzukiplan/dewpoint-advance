@@ -24,6 +24,8 @@
  */
 #include "mgbahelper.h"
 
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <new>
 #include <vector>
@@ -49,6 +51,136 @@ constexpr uint32_t DEWPOINT_REGISTER_COUNT = 16;
 constexpr uint32_t DEWPOINT_END = DEWPOINT_BASE + DEWPOINT_REGISTER_COUNT * sizeof(uint32_t);
 constexpr uint32_t DEWPOINT_COMPONENT_ID = 0x44505754; // "DPWT"
 
+class AnalogEffect
+{
+  private:
+    static constexpr size_t CHANNEL_COUNT = 2;
+    static constexpr float HP_ALPHA = 0.9971f;
+    static constexpr float LP_ALPHA = 0.62f;
+    static constexpr float ASYM_POS_GAIN = 1.000f;
+    static constexpr float ASYM_NEG_GAIN = 0.996f;
+    static constexpr float ASYM_POS_CURVE = 0.006f;
+    static constexpr float ASYM_NEG_CURVE = 0.009f;
+    static constexpr float POST_LP_ALPHA = 0.94f;
+    static constexpr float NOTCH_FREQUENCY_HZ = 4900.0f;
+    static constexpr float NOTCH_Q = 9.0f;
+    static constexpr float NOTCH_MIX = 0.020f;
+    static constexpr float SATURATOR_DRIVE = 1.006f;
+    static constexpr float OUTPUT_GAIN = 0.940f;
+    static constexpr float PI = 3.14159265358979323846f;
+
+    struct NotchCoefficients {
+        float b0;
+        float b1;
+        float b2;
+        float a1;
+        float a2;
+    } notch;
+
+    std::array<float, CHANNEL_COUNT> hpLastInput;
+    std::array<float, CHANNEL_COUNT> hpLastOutput;
+    std::array<float, CHANNEL_COUNT> lpLastOutput;
+    std::array<float, CHANNEL_COUNT> postLpLastOutput;
+    std::array<float, CHANNEL_COUNT> notchInput1;
+    std::array<float, CHANNEL_COUNT> notchInput2;
+    std::array<float, CHANNEL_COUNT> notchOutput1;
+    std::array<float, CHANNEL_COUNT> notchOutput2;
+
+    static float clampUnit(float value)
+    {
+        if (value < -1.0f) {
+            return -1.0f;
+        }
+        if (value > 1.0f) {
+            return 1.0f;
+        }
+        return value;
+    }
+
+    float applyNotch(size_t channel, float value)
+    {
+        const float filtered = (notch.b0 * value) + (notch.b1 * notchInput1[channel]) + (notch.b2 * notchInput2[channel]) - (notch.a1 * notchOutput1[channel]) - (notch.a2 * notchOutput2[channel]);
+
+        notchInput2[channel] = notchInput1[channel];
+        notchInput1[channel] = value;
+        notchOutput2[channel] = notchOutput1[channel];
+        notchOutput1[channel] = filtered;
+
+        return (value * (1.0f - NOTCH_MIX)) + (filtered * NOTCH_MIX);
+    }
+
+    float apply(size_t channel, float sample)
+    {
+        float value = sample - hpLastInput[channel] + (HP_ALPHA * hpLastOutput[channel]);
+        hpLastInput[channel] = sample;
+        hpLastOutput[channel] = value;
+
+        if (value >= 0.0f) {
+            value = (value * ASYM_POS_GAIN) + (ASYM_POS_CURVE * value * value);
+        } else {
+            value = (value * ASYM_NEG_GAIN) - (ASYM_NEG_CURVE * value * value);
+        }
+        value = clampUnit(value);
+
+        float& lowPass = lpLastOutput[channel];
+        lowPass += LP_ALPHA * (value - lowPass);
+        value = lowPass;
+
+        const float driven = value * SATURATOR_DRIVE;
+        value = driven / (1.0f + ((SATURATOR_DRIVE - 1.0f) * std::fabs(driven)));
+
+        float& postLowPass = postLpLastOutput[channel];
+        postLowPass += POST_LP_ALPHA * (value - postLowPass);
+        value = applyNotch(channel, postLowPass) * OUTPUT_GAIN;
+        return clampUnit(value);
+    }
+
+  public:
+    AnalogEffect()
+        : notch{}
+    {
+        const float omega = 2.0f * PI * NOTCH_FREQUENCY_HZ / static_cast<float>(OUTPUT_SAMPLE_RATE);
+        const float alpha = std::sin(omega) / (2.0f * NOTCH_Q);
+        const float cosOmega = std::cos(omega);
+        const float a0 = 1.0f + alpha;
+        notch.b0 = 1.0f / a0;
+        notch.b1 = (-2.0f * cosOmega) / a0;
+        notch.b2 = 1.0f / a0;
+        notch.a1 = (-2.0f * cosOmega) / a0;
+        notch.a2 = (1.0f - alpha) / a0;
+        reset();
+    }
+
+    void reset()
+    {
+        hpLastInput.fill(0.0f);
+        hpLastOutput.fill(0.0f);
+        lpLastOutput.fill(0.0f);
+        postLpLastOutput.fill(0.0f);
+        notchInput1.fill(0.0f);
+        notchInput2.fill(0.0f);
+        notchOutput1.fill(0.0f);
+        notchOutput2.fill(0.0f);
+    }
+
+    void process(int16_t* samples, size_t frames)
+    {
+        for (size_t frame = 0; frame < frames; ++frame) {
+            for (size_t channel = 0; channel < CHANNEL_COUNT; ++channel) {
+                const size_t index = frame * CHANNEL_COUNT + channel;
+                const float input = static_cast<float>(samples[index]) / 32768.0f;
+                float output = apply(channel, input) * 32768.0f;
+                if (output < -32768.0f) {
+                    output = -32768.0f;
+                } else if (output > 32767.0f) {
+                    output = 32767.0f;
+                }
+                samples[index] = static_cast<int16_t>(std::lround(output));
+            }
+        }
+    }
+};
+
 bool isDewpointAddress(uint32_t address)
 {
     return address >= DEWPOINT_BASE && address < DEWPOINT_END && (address & 3) == 0;
@@ -66,6 +198,7 @@ struct mGBAHelper::Impl {
     DewpointBridge* dewpointBridge;
     mAudioBuffer resampledAudio;
     mAudioResampler resampler;
+    AnalogEffect analogEffect;
     bool coreInitialized;
     bool configInitialized;
     bool audioInitialized;
@@ -194,6 +327,7 @@ struct mGBAHelper::Impl {
         mAudioResamplerDeinit(&resampler);
         mAudioResamplerInit(&resampler, mINTERPOLATOR_COSINE);
         mAudioResamplerSetDestination(&resampler, &resampledAudio, OUTPUT_SAMPLE_RATE);
+        analogEffect.reset();
     }
 };
 
@@ -340,6 +474,7 @@ void mGBAHelper::tick()
 
     std::vector<int16_t> samples(frames * AUDIO_CHANNELS);
     const size_t readFrames = mAudioBufferRead(&impl->resampledAudio, samples.data(), frames);
+    impl->analogEffect.process(samples.data(), readFrames);
     const size_t sampleCount = readFrames * AUDIO_CHANNELS;
     if (sampleCount >= GBA_SOUND_QUEUE_SIZE) {
         soundQueue.clear();

@@ -1,5 +1,6 @@
 build/**
 vgsx/**
+games/**
 game
 libsteam_api.dylib
 vram.bmp
