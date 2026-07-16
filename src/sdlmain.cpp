@@ -24,7 +24,10 @@
  */
 #include "dewpoint_runtime.h"
 #include "mgbahelper.h"
+#include "steam.hpp"
 
+#include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -41,6 +44,16 @@ constexpr int AUDIO_FREQUENCY = 44100;
 constexpr int AUDIO_CHANNELS = 2;
 constexpr int AUDIO_SAMPLES = 2048;
 constexpr Uint32 TARGET_QUEUED_AUDIO_SIZE = AUDIO_FREQUENCY * AUDIO_CHANNELS * sizeof(int16_t) / 20;
+
+struct WindowConfig {
+    int32_t fullscreen;
+    int32_t width;
+    int32_t height;
+    int32_t x;
+    int32_t y;
+};
+
+static_assert(sizeof(WindowConfig) == 20, "WindowConfig must use five 4-byte fields");
 
 class ScopedLogger
 {
@@ -122,6 +135,90 @@ bool readFile(const char* path, std::vector<uint8_t>* data)
     input.seekg(0);
     return static_cast<bool>(input.read(reinterpret_cast<char*>(data->data()), size));
 }
+
+WindowConfig defaultWindowConfig()
+{
+    return WindowConfig{
+        -1,
+        GBA_VRAM_WIDTH * WINDOW_SCALE,
+        GBA_VRAM_HEIGHT * WINDOW_SCALE,
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+    };
+}
+
+WindowConfig loadWindowConfig(const std::string& path)
+{
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    if (!input) {
+        std::error_code error;
+        if (std::filesystem::exists(path, error) || error) {
+            std::cerr << "Failed to read window configuration: " << path << '\n';
+        }
+        return defaultWindowConfig();
+    }
+
+    WindowConfig config{};
+    if (input.tellg() != static_cast<std::streamsize>(sizeof(config))) {
+        std::cerr << "Invalid window configuration size: " << path << '\n';
+        return defaultWindowConfig();
+    }
+    input.seekg(0);
+    if (!input.read(reinterpret_cast<char*>(&config), sizeof(config)) ||
+        (config.fullscreen != -1 && config.fullscreen != 0) || config.width <= 0 || config.height <= 0) {
+        std::cerr << "Invalid window configuration: " << path << '\n';
+        return defaultWindowConfig();
+    }
+    return config;
+}
+
+bool saveWindowConfig(
+    const std::string& path,
+    SDL_Window* window,
+    int windowedWidth,
+    int windowedHeight,
+    int windowedX,
+    int windowedY)
+{
+    const bool fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+    if (!fullscreen) {
+        SDL_GetWindowSize(window, &windowedWidth, &windowedHeight);
+        SDL_GetWindowPosition(window, &windowedX, &windowedY);
+    }
+
+    const WindowConfig config{
+        fullscreen ? -1 : 0,
+        windowedWidth,
+        windowedHeight,
+        windowedX,
+        windowedY,
+    };
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        return false;
+    }
+    output.write(reinterpret_cast<const char*>(&config), sizeof(config));
+    output.flush();
+    return static_cast<bool>(output);
+}
+
+bool isFullscreen(SDL_Window* window)
+{
+    return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+}
+
+void updateCursorVisibility(SDL_Window* window)
+{
+    const int toggle = isFullscreen(window) ? SDL_DISABLE : SDL_ENABLE;
+    if (SDL_ShowCursor(toggle) < 0) {
+        std::cerr << "SDL_ShowCursor failed: " << SDL_GetError() << '\n';
+    }
+}
+
+void printUsage(const char* executable)
+{
+    std::cerr << "Usage: " << executable << " [-s <save.dat>] [-c <config.dat>] <rom.gba>\n";
+}
 } // namespace
 
 int main(int argc, char* argv[])
@@ -130,23 +227,28 @@ int main(int argc, char* argv[])
 
     std::string romPath;
     std::string sramPath = "save.dat";
+    std::string configPath = "config.dat";
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
-        if (argument == "-s") {
+        if (argument == "-s" || argument == "-c") {
             if (++i >= argc) {
-                std::cerr << "Usage: " << argv[0] << " [-s <save.dat>] <rom.gba>\n";
+                printUsage(argv[0]);
                 return 1;
             }
-            sramPath = argv[i];
+            if (argument == "-s") {
+                sramPath = argv[i];
+            } else {
+                configPath = argv[i];
+            }
         } else if (!romPath.empty()) {
-            std::cerr << "Usage: " << argv[0] << " [-s <save.dat>] <rom.gba>\n";
+            printUsage(argv[0]);
             return 1;
         } else {
             romPath = argument;
         }
     }
     if (romPath.empty()) {
-        std::cerr << "Usage: " << argv[0] << " [-s <save.dat>] <rom.gba>\n";
+        printUsage(argv[0]);
         return 1;
     }
 
@@ -174,29 +276,62 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    const WindowConfig config = loadWindowConfig(configPath);
+    const bool windowModeEnabled = CSteam::isEnabledWindowModo();
+    int windowedWidth = config.width;
+    int windowedHeight = config.height;
+    int windowedX = config.x;
+    int windowedY = config.y;
+
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
     SDL_Window* window = SDL_CreateWindow(
         "mGBA SDL2",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        gba.getVramWidth() * WINDOW_SCALE,
-        gba.getVramHeight() * WINDOW_SCALE,
+        windowedX,
+        windowedY,
+        windowedWidth,
+        windowedHeight,
         SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
     if (!window) {
         std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
         return 1;
     }
+    SDL_GetWindowSize(window, &windowedWidth, &windowedHeight);
+    SDL_GetWindowPosition(window, &windowedX, &windowedY);
+    if ((!windowModeEnabled || config.fullscreen == -1) &&
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
+        std::cerr << "SDL_SetWindowFullscreen failed: " << SDL_GetError() << '\n';
+    }
+    updateCursorVisibility(window);
     dewpoint.setFullscreenCallbacks(
-        [window](bool fullscreen) {
+        [window, windowModeEnabled, &windowedWidth, &windowedHeight, &windowedX, &windowedY](bool fullscreen) {
+            const bool wasFullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+            if (!fullscreen && !windowModeEnabled) {
+                return wasFullscreen;
+            }
+            if (fullscreen && !wasFullscreen) {
+                SDL_GetWindowSize(window, &windowedWidth, &windowedHeight);
+                SDL_GetWindowPosition(window, &windowedX, &windowedY);
+            }
             const Uint32 flags = fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
             if (SDL_SetWindowFullscreen(window, flags) != 0) {
                 std::cerr << "SDL_SetWindowFullscreen failed: " << SDL_GetError() << '\n';
             }
-            return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+            const bool fullscreenEnabled = isFullscreen(window);
+            updateCursorVisibility(window);
+            if (!fullscreenEnabled) {
+                SDL_GetWindowSize(window, &windowedWidth, &windowedHeight);
+                SDL_GetWindowPosition(window, &windowedX, &windowedY);
+            }
+            return fullscreenEnabled;
         },
         [window]() {
-            return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+            return isFullscreen(window);
         });
+    const auto saveConfig = [&]() {
+        if (!saveWindowConfig(configPath, window, windowedWidth, windowedHeight, windowedX, windowedY)) {
+            std::cerr << "Failed to save window configuration: " << configPath << '\n';
+        }
+    };
 
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) {
@@ -204,6 +339,7 @@ int main(int argc, char* argv[])
     }
     if (!renderer) {
         std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << '\n';
+        saveConfig();
         SDL_DestroyWindow(window);
         return 1;
     }
@@ -217,6 +353,7 @@ int main(int argc, char* argv[])
         gba.getVramHeight());
     if (!texture) {
         std::cerr << "SDL_CreateTexture failed: " << SDL_GetError() << '\n';
+        saveConfig();
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         return 1;
@@ -230,6 +367,7 @@ int main(int argc, char* argv[])
     SDL_AudioDeviceID audioDevice = SDL_OpenAudioDevice(nullptr, 0, &desired, nullptr, 0);
     if (!audioDevice) {
         std::cerr << "SDL_OpenAudioDevice failed: " << SDL_GetError() << '\n';
+        saveConfig();
         SDL_DestroyTexture(texture);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
@@ -244,8 +382,19 @@ int main(int argc, char* argv[])
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
-            } else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
-                gba.keyState = {};
+            } else if (event.type == SDL_WINDOWEVENT) {
+                updateCursorVisibility(window);
+                if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                    gba.keyState = {};
+                } else if ((SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) == 0) {
+                    if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                        windowedWidth = event.window.data1;
+                        windowedHeight = event.window.data2;
+                    } else if (event.window.event == SDL_WINDOWEVENT_MOVED) {
+                        windowedX = event.window.data1;
+                        windowedY = event.window.data2;
+                    }
+                }
             } else if (event.type == SDL_KEYDOWN) {
                 const bool command = (event.key.keysym.mod & KMOD_GUI) != 0;
                 if (command && event.key.keysym.sym == SDLK_q) {
@@ -301,6 +450,7 @@ int main(int argc, char* argv[])
 
     SDL_PauseAudioDevice(audioDevice, 1);
     SDL_CloseAudioDevice(audioDevice);
+    saveConfig();
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

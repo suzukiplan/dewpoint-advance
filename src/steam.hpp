@@ -25,7 +25,6 @@
 #pragma once
 
 #include "steam_api.h"
-#include "crc.hpp"
 #include <ctype.h>
 #include <vector>
 #include <string>
@@ -282,6 +281,11 @@ class CSteam
     bool isRunningOnSteamDeck()
     {
         return SteamUtils() ? SteamUtils()->IsSteamRunningOnSteamDeck() : false;
+    }
+
+    static bool isEnabledWindowModo()
+    {
+        return getenv("SteamTenfoot") == nullptr;
     }
 
     bool init()
@@ -1704,7 +1708,7 @@ class CSteam
         this->buttonState.start = start.bState;
     }
 
-    bool activate(InputHandle_t inputHandle)
+    bool activate(InputHandle_t)
     {
         if (!this->actMove) {
             this->actMove = SteamInput()->GetAnalogActionHandle("Move");
