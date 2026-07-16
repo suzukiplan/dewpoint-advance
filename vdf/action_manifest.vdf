@@ -80,8 +80,8 @@
       "Action_buttonB"        "B"
       "Action_buttonL"        "L"
       "Action_buttonR"        "R"
-      "Action_buttonStart"    "Pause"
-      "Action_buttonSelect"   "Cancel"
+      "Action_buttonStart"    "Start"
+      "Action_buttonSelect"   "Select"
     }
   }
 }
