@@ -524,6 +524,7 @@ void mGBAHelper::tick()
     keys |= static_cast<uint32_t>(keyState.a) << GBA_KEY_A;
     keys |= static_cast<uint32_t>(keyState.b) << GBA_KEY_B;
     keys |= static_cast<uint32_t>(keyState.start) << GBA_KEY_START;
+    keys |= static_cast<uint32_t>(keyState.select) << GBA_KEY_SELECT;
     keys |= static_cast<uint32_t>(keyState.right) << GBA_KEY_RIGHT;
     keys |= static_cast<uint32_t>(keyState.left) << GBA_KEY_LEFT;
     keys |= static_cast<uint32_t>(keyState.up) << GBA_KEY_UP;
