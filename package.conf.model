@@ -1,4 +1,5 @@
 AppName = Your App Name
+IconFile = /path/to/icon.png
 RomFile = ./example.gba
 ButtonDescMove = Movement
 ButtonDescUp = Move Up

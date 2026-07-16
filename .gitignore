@@ -13,6 +13,6 @@ steamworks/tools/**
 steam_appid.txt
 package.conf
 src/game_rom.c
+src/dewpoint_define.h
 config.dat
 save.dat
-

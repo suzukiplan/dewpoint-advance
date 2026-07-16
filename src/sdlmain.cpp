@@ -23,6 +23,7 @@
  * THE SOFTWARE.
  */
 #include "dewpoint_runtime.h"
+#include "dewpoint_define.h"
 #include "mgbahelper.h"
 #include "steam.hpp"
 
@@ -317,7 +318,7 @@ int main(int argc, char* argv[])
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
     SDL_Window* window = SDL_CreateWindow(
-        "mGBA SDL2",
+        APP_NAME,
         windowedX,
         windowedY,
         windowedWidth,
