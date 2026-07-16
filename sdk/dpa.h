@@ -34,6 +34,12 @@ typedef struct {
 } LeaderboardEntry;
 
 /**
+ * @brief Dewpoint Advance SDK が利用可能かチェックする
+ * @return 0: 利用不可, not 0; 利用可
+ */
+int dpa_is_enabled(void);
+
+/**
  * @brief アチーブメントをアンロック
  * @param id アチーブメントID (\0終端のテキスト)
  */

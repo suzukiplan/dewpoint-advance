@@ -47,14 +47,19 @@ enum DpaIndex {
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
 
-static inline int dpa_is_enabled(void)
+static inline int dpa_is_enabled_internal(void)
 {
     return _dpa[DpaIndexId] == DPMID;
 }
 
+int dpa_is_enabled(void)
+{
+    return dpa_is_enabled_internal();
+}
+
 void dpa_achievement_unlock(const char* id)
 {
-    if (!dpa_is_enabled() || !id || 0 == id[0]) {
+    if (!dpa_is_enabled_internal() || !id || 0 == id[0]) {
         return;
     }
     while (*id) {
@@ -66,7 +71,7 @@ void dpa_achievement_unlock(const char* id)
 
 void dpa_leaderboard_send(int board_id, int32_t score, int ugc)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return;
     }
     _dpa[DpaIndexSetBoardId] = (uint32_t)board_id;
@@ -76,7 +81,7 @@ void dpa_leaderboard_send(int board_id, int32_t score, int ugc)
 
 int dpa_leaderboard_ready(int board_id)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return 0;
     }
     _dpa[DpaIndexSetBoardId] = (uint32_t)board_id;
@@ -101,7 +106,7 @@ int dpa_leaderboard_getm(int board_id, LeaderboardEntry* entry)
 
 void dpa_ugc_clear(void)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return;
     }
     _dpa[DpaIndexUgcClear] = 1;
@@ -109,7 +114,7 @@ void dpa_ugc_clear(void)
 
 void dpa_ugc_append(int32_t data)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return;
     }
     _dpa[DpaIndexUgcAppend] = (uint32_t)data;
@@ -117,7 +122,7 @@ void dpa_ugc_append(int32_t data)
 
 void dpa_ugc_download(LeaderboardEntry* entry)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return;
     }
     _dpa[DpaIndexSetBoardId] = (uint32_t)entry->board_id;
@@ -127,7 +132,7 @@ void dpa_ugc_download(LeaderboardEntry* entry)
 
 int dpa_ugc_size(void)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return -1;
     }
     return (int)_dpa[DpaIndexUgcSize];
@@ -135,7 +140,7 @@ int dpa_ugc_size(void)
 
 int32_t dpa_ugc_read(int index)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return -1;
     }
     _dpa[DpaIndexUgcReadPtr] = (uint32_t)index;
@@ -144,7 +149,7 @@ int32_t dpa_ugc_read(int index)
 
 void dpa_exit(int exit_code)
 {
-    if (dpa_is_enabled()) {
+    if (dpa_is_enabled_internal()) {
         _dpa[DpaIndexExit] = (uint32_t)exit_code;
     }
     for (;;) {
@@ -153,7 +158,7 @@ void dpa_exit(int exit_code)
 
 int dpa_fullscreen_set(int full_screen)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return 0;
     }
     _dpa[DpaIndexFullScreen] = full_screen ? 1 : 0;
@@ -162,7 +167,7 @@ int dpa_fullscreen_set(int full_screen)
 
 int dpa_fullscreen_get(void)
 {
-    if (!dpa_is_enabled()) {
+    if (!dpa_is_enabled_internal()) {
         return 0;
     }
     return _dpa[DpaIndexFullScreen] ? 1 : 0;
