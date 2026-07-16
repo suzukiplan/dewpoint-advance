@@ -11,6 +11,8 @@ namespace
 {
 
 namespace fs = std::filesystem;
+constexpr std::uintmax_t NINTENDO_LOGO_OFFSET = 0x004;
+constexpr std::uintmax_t NINTENDO_LOGO_SIZE = 156;
 
 void putUsage()
 {
@@ -172,6 +174,7 @@ bool writeSource(const fs::path& romPath, const fs::path& sourcePath)
 
     std::uint8_t buffer[16];
     bool firstLine = true;
+    std::uintmax_t offset = 0;
     while (rom.read(reinterpret_cast<char*>(buffer), sizeof(buffer)) || rom.gcount() > 0) {
         const std::streamsize count = rom.gcount();
         if (!firstLine) {
@@ -183,8 +186,13 @@ bool writeSource(const fs::path& romPath, const fs::path& sourcePath)
             if (i != 0) {
                 source << ", ";
             }
-            source << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned int>(buffer[i]);
+            const std::uintmax_t byteOffset = offset + static_cast<std::uintmax_t>(i);
+            const bool isNintendoLogo = NINTENDO_LOGO_OFFSET <= byteOffset &&
+                byteOffset < NINTENDO_LOGO_OFFSET + NINTENDO_LOGO_SIZE;
+            const unsigned int value = isNintendoLogo ? 0 : buffer[i];
+            source << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << value;
         }
+        offset += static_cast<std::uintmax_t>(count);
     }
     if (!rom.eof()) {
         std::cerr << "makerom: failed while reading ROM file: " << romPath << '\n';
