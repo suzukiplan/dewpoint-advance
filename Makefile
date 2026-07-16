@@ -1,4 +1,5 @@
 all:
+	cd tools && make
 	make -f Makefile.`uname` all
 
 clean:
