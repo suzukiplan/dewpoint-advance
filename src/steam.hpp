@@ -114,6 +114,7 @@ class CSteam
     };
 
     bool initialized;
+    bool inputInitialized;
     bool overlay;
     InputAnalogActionHandle_t actMove;   // Left Stick as D-Pad (common)
     InputDigitalActionHandle_t actUp;    // D-Pad up (common)
@@ -124,7 +125,14 @@ class CSteam
     InputDigitalActionHandle_t actB;     // SW: B, XBOX: B, PS: Circle
     InputDigitalActionHandle_t actX;     // SW: X, XBOX: X, PS: Triangle
     InputDigitalActionHandle_t actY;     // SW: Y, XBOX: Y, PS: Square
+    InputDigitalActionHandle_t actL;     // SW: L, XBOX: LB, PS: L1
+    InputDigitalActionHandle_t actR;     // SW: R, XBOX: RB, PS: R1
+    InputDigitalActionHandle_t actZL;    // SW: ZL, XBOX: LT, PS: L2
+    InputDigitalActionHandle_t actZR;    // SW: ZR, XBOX: RT, PS: R2
+    InputDigitalActionHandle_t actL3;    // Left stick click
+    InputDigitalActionHandle_t actR3;    // Right stick click
     InputDigitalActionHandle_t actStart; // SW: +, XBOX: Menu, PS: options
+    InputDigitalActionHandle_t actSelect; // SW: -, XBOX: View, PS: Create
 
     // Steam overlay callback（これは従来通り SteamAPI のコールバック）
     STEAM_CALLBACK_MANUAL(CSteam, onGameOverlayActivated, GameOverlayActivated_t, callbackGameOverlayActivated);
@@ -222,16 +230,18 @@ class CSteam
         bool right;
         bool a;
         bool b;
-        bool x;
-        bool y;
+        bool l;
+        bool r;
         bool start;
-    } buttonState;
+        bool select;
+    } buttonState{};
 
     CSteam() : logger(nullptr)
     {
         CSteam::s_instance = this;
 
         this->initialized = false;
+        this->inputInitialized = false;
         this->overlay = false;
         this->deactivate();
         this->clearButtonState();
@@ -255,9 +265,11 @@ class CSteam
         this->cancelLobbyAvailabilityChecks();
         this->cancelMatchmakingRequests();
         this->closeMatchmakingSockets(true);
+        if (this->inputInitialized) {
+            SteamInput()->Shutdown();
+        }
         if (this->initialized) {
             putlog("Teminating Steam...");
-            SteamInput()->Shutdown();
             SteamAPI_Shutdown();
         }
     }
@@ -295,7 +307,6 @@ class CSteam
             putlog("SteamAPI_Init failed");
         } else {
             auto* utils = SteamNetworkingUtils();
-            auto* input = SteamInput();
             utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, 0);      // ICE 無効
             utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_SDR_Penalty, 0);     // リレー優先（最小ペナルティ）
             utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Penalty, 10000); // ICE があっても選ばれないよう巨大ペナルティ
@@ -304,35 +315,46 @@ class CSteam
             SteamNetworkingSockets()->InitAuthentication();
             callbackGameOverlayActivated.Register(this, &CSteam::onGameOverlayActivated);
             callbackLobbyDataUpdate.Register(this, &CSteam::onLobbyDataUpdated);
-            auto* apps = SteamApps();
-            if (input && apps) {
-                char installDir[1024];
-                AppId_t appId = SteamUtils() ? SteamUtils()->GetAppID() : 0;
-                if (apps->GetAppInstallDir(appId, installDir, sizeof(installDir)) > 0) {
-                    std::string manifestPath(installDir);
-                    if (!manifestPath.empty() && manifestPath.back() != '/' && manifestPath.back() != '\\') {
-                        manifestPath += '/';
-                    }
-                    manifestPath += "action_manifest.vdf";
-                    if (input->SetInputActionManifestFilePath(manifestPath.c_str())) {
-                        putlog("SteamInput action manifest: %s", manifestPath.c_str());
-                    } else {
-                        putlog("SetInputActionManifestFilePath failed: %s", manifestPath.c_str());
-                    }
-                } else {
-                    putlog("GetAppInstallDir failed.");
-                }
-            } else {
-                putlog("SteamInput or SteamApps unavailable.");
-            }
-            if (!input || !input->Init(true)) {
-                putlog("SteamInput::Init failed!");
-            } else {
-                putlog("SteamInput initialized.");
+            if (this->initializeInput()) {
                 this->initialized = true;
             }
         }
         return this->initialized;
+    }
+
+    bool initializeInput()
+    {
+        if (this->inputInitialized) {
+            return true;
+        }
+
+        auto* input = SteamInput();
+        auto* apps = SteamApps();
+        if (!input || !apps) {
+            putlog("SteamInput or SteamApps unavailable.");
+            return false;
+        }
+
+        char installDir[1024];
+        AppId_t appId = SteamUtils() ? SteamUtils()->GetAppID() : 0;
+        if (apps->GetAppInstallDir(appId, installDir, sizeof(installDir)) > 0) {
+            std::string manifestPath(installDir);
+            if (!manifestPath.empty() && manifestPath.back() != '/' && manifestPath.back() != '\\') {
+                manifestPath += '/';
+            }
+            manifestPath += "action_manifest.vdf";
+            if (input->SetInputActionManifestFilePath(manifestPath.c_str())) {
+                putlog("SteamInput action manifest: %s", manifestPath.c_str());
+            } else {
+                putlog("SetInputActionManifestFilePath failed: %s", manifestPath.c_str());
+            }
+        } else {
+            putlog("GetAppInstallDir failed.");
+        }
+
+        this->inputInitialized = input->Init(true);
+        putlog(this->inputInitialized ? "SteamInput initialized." : "SteamInput::Init failed!");
+        return this->inputInitialized;
     }
 
     void enableNetworkLogging()
@@ -400,6 +422,11 @@ class CSteam
             this->updateButtonState();
             this->tickMatchmaking();
         }
+    }
+
+    void updateInput()
+    {
+        this->updateButtonState();
     }
 
     bool p2pSend(const std::string& msg)
@@ -1575,7 +1602,14 @@ class CSteam
         this->actB = 0;
         this->actX = 0;
         this->actY = 0;
+        this->actL = 0;
+        this->actR = 0;
+        this->actZL = 0;
+        this->actZR = 0;
+        this->actL3 = 0;
+        this->actR3 = 0;
         this->actStart = 0;
+        this->actSelect = 0;
     }
 
     inline void clearButtonState()
@@ -1586,16 +1620,18 @@ class CSteam
         this->buttonState.right = false;
         this->buttonState.a = false;
         this->buttonState.b = false;
-        this->buttonState.x = false;
-        this->buttonState.y = false;
+        this->buttonState.l = false;
+        this->buttonState.r = false;
         this->buttonState.start = false;
+        this->buttonState.select = false;
+        this->buttonState.connected = false;
     }
 
     void updateButtonState()
     {
         auto previousType = buttonState.type;
         this->clearButtonState();
-        if (!initialized) {
+        if (!inputInitialized) {
             putlog("warning: called updateButtonState without initialization");
             buttonState.type = ControllerType::NotConnected;
             return;
@@ -1637,6 +1673,7 @@ class CSteam
         }
         if (!inputHandle) {
             // 対応コントローラが接続されていないので未接続とする
+            buttonState.connected = false;
             buttonState.type = ControllerType::NotConnected;
             return;
         }
@@ -1646,6 +1683,7 @@ class CSteam
             this->deactivate();
         }
         if (!this->activate(inputHandle)) {
+            buttonState.connected = false;
             buttonState.type = ControllerType::NotConnected;
             return;
         }
@@ -1660,7 +1698,14 @@ class CSteam
         auto b = SteamInput()->GetDigitalActionData(inputHandle, actB);
         auto x = SteamInput()->GetDigitalActionData(inputHandle, actX);
         auto y = SteamInput()->GetDigitalActionData(inputHandle, actY);
+        auto l = SteamInput()->GetDigitalActionData(inputHandle, actL);
+        auto r = SteamInput()->GetDigitalActionData(inputHandle, actR);
+        auto zl = SteamInput()->GetDigitalActionData(inputHandle, actZL);
+        auto zr = SteamInput()->GetDigitalActionData(inputHandle, actZR);
+        auto l3 = SteamInput()->GetDigitalActionData(inputHandle, actL3);
+        auto r3 = SteamInput()->GetDigitalActionData(inputHandle, actR3);
         auto start = SteamInput()->GetDigitalActionData(inputHandle, actStart);
+        auto select = SteamInput()->GetDigitalActionData(inputHandle, actSelect);
 
         // アナログスティックの情報を設定
         const float deadzone = 0.2f;
@@ -1701,11 +1746,12 @@ class CSteam
         this->buttonState.down |= down.bState;
         this->buttonState.left |= left.bState;
         this->buttonState.right |= right.bState;
-        this->buttonState.a = a.bState;
-        this->buttonState.b = b.bState;
-        this->buttonState.x = x.bState;
-        this->buttonState.y = y.bState;
+        this->buttonState.a = a.bState || y.bState;
+        this->buttonState.b = b.bState || x.bState;
+        this->buttonState.l = l.bState || zl.bState || l3.bState;
+        this->buttonState.r = r.bState || zr.bState || r3.bState;
         this->buttonState.start = start.bState;
+        this->buttonState.select = select.bState;
     }
 
     bool activate(InputHandle_t)
@@ -1764,9 +1810,51 @@ class CSteam
                 return false;
             }
         }
+        if (!this->actL) {
+            this->actL = SteamInput()->GetDigitalActionHandle("button_lb");
+            if (!this->actL) {
+                return false;
+            }
+        }
+        if (!this->actR) {
+            this->actR = SteamInput()->GetDigitalActionHandle("button_rb");
+            if (!this->actR) {
+                return false;
+            }
+        }
+        if (!this->actZL) {
+            this->actZL = SteamInput()->GetDigitalActionHandle("button_lt");
+            if (!this->actZL) {
+                return false;
+            }
+        }
+        if (!this->actZR) {
+            this->actZR = SteamInput()->GetDigitalActionHandle("button_rt");
+            if (!this->actZR) {
+                return false;
+            }
+        }
+        if (!this->actL3) {
+            this->actL3 = SteamInput()->GetDigitalActionHandle("button_ls");
+            if (!this->actL3) {
+                return false;
+            }
+        }
+        if (!this->actR3) {
+            this->actR3 = SteamInput()->GetDigitalActionHandle("button_rs");
+            if (!this->actR3) {
+                return false;
+            }
+        }
         if (!this->actStart) {
             this->actStart = SteamInput()->GetDigitalActionHandle("button_start");
             if (!this->actStart) {
+                return false;
+            }
+        }
+        if (!this->actSelect) {
+            this->actSelect = SteamInput()->GetDigitalActionHandle("button_select");
+            if (!this->actSelect) {
                 return false;
             }
         }

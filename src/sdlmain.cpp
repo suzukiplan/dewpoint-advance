@@ -120,6 +120,23 @@ void updateKeyState(mGBAHelper::KeyState* state, SDL_Keycode key, bool pressed)
     }
 }
 
+void updateGbaKeyState(
+    mGBAHelper::KeyState* state,
+    const mGBAHelper::KeyState& keyboardState,
+    const CSteam::ButtonState& steamState)
+{
+    state->up = keyboardState.up || steamState.up;
+    state->down = keyboardState.down || steamState.down;
+    state->left = keyboardState.left || steamState.left;
+    state->right = keyboardState.right || steamState.right;
+    state->a = keyboardState.a || steamState.a;
+    state->b = keyboardState.b || steamState.b;
+    state->l = keyboardState.l || steamState.l;
+    state->r = keyboardState.r || steamState.r;
+    state->start = keyboardState.start || steamState.start;
+    state->select = keyboardState.select || steamState.select;
+}
+
 bool readFile(const char* path, std::vector<uint8_t>* data)
 {
     std::ifstream input(path, std::ios::binary | std::ios::ate);
@@ -268,7 +285,12 @@ int main(int argc, char* argv[])
     DewpointRuntime dewpoint(gba, [](const char* message) {
         std::cerr << "[Steam] " << message << '\n';
     });
-    dewpoint.initialize();
+    const bool steamInitialized = dewpoint.initialize();
+    CSteam steamInput;
+    steamInput.setLoggger([](const char* message) {
+        std::cerr << "[SteamInput] " << message << '\n';
+    });
+    const bool steamInputInitialized = steamInitialized && steamInput.initializeInput();
 
     ScopedSdl sdl;
     if (!sdl) {
@@ -377,6 +399,7 @@ int main(int argc, char* argv[])
 
     bool running = true;
     int exitCode = 0;
+    mGBAHelper::KeyState keyboardState{};
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -385,7 +408,7 @@ int main(int argc, char* argv[])
             } else if (event.type == SDL_WINDOWEVENT) {
                 updateCursorVisibility(window);
                 if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
-                    gba.keyState = {};
+                    keyboardState = {};
                 } else if ((SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) == 0) {
                     if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                         windowedWidth = event.window.data1;
@@ -403,10 +426,10 @@ int main(int argc, char* argv[])
                     gba.reset();
                     SDL_ClearQueuedAudio(audioDevice);
                 } else if (!command) {
-                    updateKeyState(&gba.keyState, event.key.keysym.sym, true);
+                    updateKeyState(&keyboardState, event.key.keysym.sym, true);
                 }
             } else if (event.type == SDL_KEYUP) {
-                updateKeyState(&gba.keyState, event.key.keysym.sym, false);
+                updateKeyState(&keyboardState, event.key.keysym.sym, false);
             }
         }
         if (!running) {
@@ -414,6 +437,10 @@ int main(int argc, char* argv[])
         }
 
         dewpoint.tick();
+        if (steamInputInitialized) {
+            steamInput.updateInput();
+        }
+        updateGbaKeyState(&gba.keyState, keyboardState, steamInput.buttonState);
         gba.tick();
         if (dewpoint.takeExitRequest(&exitCode)) {
             running = false;
