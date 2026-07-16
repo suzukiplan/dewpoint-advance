@@ -37,6 +37,11 @@
 #include <mgba/core/log.h>
 #include <SDL.h>
 
+extern "C" {
+extern const uint8_t game_rom[];
+extern const size_t game_rom_size;
+}
+
 namespace
 {
 constexpr int WINDOW_SCALE = 3;
@@ -234,7 +239,7 @@ void updateCursorVisibility(SDL_Window* window)
 
 void printUsage(const char* executable)
 {
-    std::cerr << "Usage: " << executable << " [-s <save.dat>] [-c <config.dat>] <rom.gba>\n";
+    std::cerr << "Usage: " << executable << " [-s <save.dat>] [-c <config.dat>] [rom.gba]\n";
 }
 } // namespace
 
@@ -264,21 +269,26 @@ int main(int argc, char* argv[])
             romPath = argument;
         }
     }
-    if (romPath.empty()) {
-        printUsage(argv[0]);
-        return 1;
-    }
-
     std::vector<uint8_t> rom;
-    if (!readFile(romPath.c_str(), &rom)) {
+    const uint8_t* romData = game_rom;
+    size_t romSize = game_rom_size;
+    if (!romPath.empty() && !readFile(romPath.c_str(), &rom)) {
         std::cerr << "Failed to read GBA ROM: " << romPath << '\n';
         return 1;
+    }
+    if (!romPath.empty()) {
+        romData = rom.data();
+        romSize = rom.size();
     }
 
     mGBAHelper gba;
     gba.setSramPath(sramPath);
-    if (!gba.load(rom.data(), rom.size())) {
-        std::cerr << "Failed to load GBA ROM: " << romPath << '\n';
+    if (!gba.load(romData, romSize)) {
+        if (romPath.empty()) {
+            std::cerr << "Failed to load embedded GBA ROM\n";
+        } else {
+            std::cerr << "Failed to load GBA ROM: " << romPath << '\n';
+        }
         return 1;
     }
 
@@ -398,6 +408,7 @@ int main(int argc, char* argv[])
     SDL_PauseAudioDevice(audioDevice, 0);
 
     bool running = true;
+    bool paused = false;
     int exitCode = 0;
     mGBAHelper::KeyState keyboardState{};
     while (running) {
@@ -425,6 +436,10 @@ int main(int argc, char* argv[])
                 } else if (command && event.key.keysym.sym == SDLK_r && !event.key.repeat) {
                     gba.reset();
                     SDL_ClearQueuedAudio(audioDevice);
+                } else if (command && event.key.keysym.sym == SDLK_p && !event.key.repeat) {
+                    paused = !paused;
+                    SDL_ClearQueuedAudio(audioDevice);
+                    SDL_PauseAudioDevice(audioDevice, paused ? 1 : 0);
                 } else if (!command) {
                     updateKeyState(&keyboardState, event.key.keysym.sym, true);
                 }
@@ -441,11 +456,15 @@ int main(int argc, char* argv[])
             steamInput.updateInput();
         }
         updateGbaKeyState(&gba.keyState, keyboardState, steamInput.buttonState);
-        gba.tick();
         if (dewpoint.takeExitRequest(&exitCode)) {
             running = false;
             break;
         }
+        if (paused) {
+            SDL_Delay(10);
+            continue;
+        }
+        gba.tick();
 
         size_t soundSize = 0;
         uint16_t* sound = gba.dequeSound(&soundSize);

@@ -166,7 +166,8 @@ bool writeSource(const fs::path& romPath, const fs::path& sourcePath)
         return false;
     }
 
-    source << "#include <vgs.h>\n\n";
+    source << "#include <stddef.h>\n";
+    source << "#include <stdint.h>\n\n";
     source << "const uint8_t game_rom[" << romSize << "] = {\n";
 
     std::uint8_t buffer[16];
@@ -190,7 +191,8 @@ bool writeSource(const fs::path& romPath, const fs::path& sourcePath)
         return false;
     }
 
-    source << "\n};\n";
+    source << "\n};\n\n";
+    source << "const size_t game_rom_size = sizeof(game_rom);\n";
     if (!source) {
         std::cerr << "makerom: failed while writing output file: " << sourcePath << '\n';
         return false;

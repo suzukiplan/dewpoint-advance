@@ -1,4 +1,5 @@
 CXX ?= clang++
+CC ?= clang
 CMAKE ?= cmake
 SDL2_CONFIG ?= sdl2-config
 
@@ -8,8 +9,10 @@ MGBA_BUILD_DIR := $(BUILD_DIR)/mgba
 MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.dylib
 STEAM_LIBRARY := steamworks/redistributable_bin/osx/libsteam_api.dylib
 STEAM_RUNTIME_LIBRARY := libsteam_api.dylib
-SOURCES := src/dewpoint_runtime.cpp src/mgbahelper.cpp src/sdlmain.cpp
-OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
+CPP_SOURCES := src/dewpoint_runtime.cpp src/mgbahelper.cpp src/sdlmain.cpp
+C_SOURCES := src/game_rom.c
+OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(CPP_SOURCES)) \
+	$(patsubst src/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
 DEPFILES := $(OBJECTS:.o=.d)
 
 CPPFLAGS := -I./src -isystem ./mgba/include -isystem $(MGBA_BUILD_DIR)/include \
@@ -18,6 +21,8 @@ CPPFLAGS := -I./src -isystem ./mgba/include -isystem $(MGBA_BUILD_DIR)/include \
 	-DENABLE_DIRECTORIES -DENABLE_VFS
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic -MMD -MP
+CFLAGS ?= -O2 -g
+CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -MMD -MP
 LDFLAGS += -Wl,-rpath,@executable_path/$(MGBA_BUILD_DIR)
 LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) $(shell $(SDL2_CONFIG) --libs) -framework Foundation -pthread
 
@@ -34,6 +39,10 @@ $(STEAM_RUNTIME_LIBRARY): $(STEAM_LIBRARY)
 $(BUILD_DIR)/%.o: src/%.cpp | $(MGBA_LIBRARY)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: src/%.c | $(MGBA_LIBRARY)
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(MGBA_LIBRARY): mgba/CMakeLists.txt
 	$(CMAKE) -S mgba -B $(MGBA_BUILD_DIR) \
