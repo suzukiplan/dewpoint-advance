@@ -11,4 +11,5 @@ steamworks/glmgr/**
 steamworks/redistributable_bin/**
 steamworks/tools/**
 steam_appid.txt
+package.conf
 

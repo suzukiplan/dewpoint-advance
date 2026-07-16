@@ -1,0 +1,12 @@
+AppName = Your App Name
+RomFile = /path/to/game.gba
+ButtonDescUp = Move Up
+ButtonDescDown = Move Down
+ButtonDescLeft = Move Left
+ButtonDescRight = Move Right
+ButtonDescA = Jump
+ButtonDescB = Fire
+ButtonDescL = Page Left
+ButtonDescR = Page Right
+ButtonDescSelect = Cancel
+ButtonDescStart = Pause
