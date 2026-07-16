@@ -1,5 +1,6 @@
 AppName = Your App Name
-RomFile = /path/to/game.gba
+RomFile = ./example.gba
+ButtonDescMove = Movement
 ButtonDescUp = Move Up
 ButtonDescDown = Move Down
 ButtonDescLeft = Move Left

@@ -71,17 +71,17 @@
     "english"
     {
       "Set_Ingame"            "In-Game Controls"
-      "Action_Move"           "Movement"
-      "Action_dpadUp"         "Move Up"
-      "Action_dpadDown"       "Move Down"
-      "Action_dpadLeft"       "Move Left"
-      "Action_dpadRight"      "Move Right"
-      "Action_buttonA"        "A"
-      "Action_buttonB"        "B"
-      "Action_buttonL"        "L"
-      "Action_buttonR"        "R"
-      "Action_buttonStart"    "Start"
-      "Action_buttonSelect"   "Select"
+      "Action_Move"           "${ButtonDescMove}"
+      "Action_dpadUp"         "${ButtonDescUp}"
+      "Action_dpadDown"       "${ButtonDescDown}"
+      "Action_dpadLeft"       "${ButtonDescLeft}"
+      "Action_dpadRight"      "${ButtonDescRight}"
+      "Action_buttonA"        "${ButtonDescA}"
+      "Action_buttonB"        "${ButtonDescB}"
+      "Action_buttonL"        "${ButtonDescL}"
+      "Action_buttonR"        "${ButtonDescR}"
+      "Action_buttonStart"    "${ButtonDescStart}"
+      "Action_buttonSelect"   "${ButtonDescSelect}"
     }
   }
 }
