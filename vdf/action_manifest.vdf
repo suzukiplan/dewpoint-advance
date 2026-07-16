@@ -1,0 +1,87 @@
+"Action Manifest"
+{
+  "configurations"
+  {
+    "controller_neptune"
+    {
+      "0" { "path" "game_actions_neptune.vdf" }
+    }
+    "controller_xbox360"
+    {
+      "0" { "path" "game_actions_xbox360.vdf" }
+    }
+    "controller_xboxone"
+    {
+      "0" { "path" "game_actions_xboxone.vdf" }
+    }
+    "controller_generic"
+    {
+      "0" { "path" "game_actions_generic.vdf" }
+    }
+    "controller_ps4"
+    {
+      "0" { "path" "game_actions_ps4.vdf" }
+    }
+    "controller_ps5"
+    {
+      "0" { "path" "game_actions_ps5.vdf" }
+    }
+    "controller_switch_pro"
+    {
+      "0" { "path" "game_actions_switch_pro.vdf" }
+    }
+  }
+  "actions"
+  {
+    "InGameControls"
+    {
+      "title"                 "#Set_Ingame"
+      "gamepad_template"      "gamepad"
+      "StickPadGyro"
+      {
+        "Move"
+        {
+          "title"         "#Action_Move"
+          "input_mode"    "joystick_move"
+        }
+      }
+      "Button"
+      {
+        "dpad_up"        "#Action_dpadUp"
+        "dpad_down"      "#Action_dpadDown"
+        "dpad_left"      "#Action_dpadLeft"
+        "dpad_right"     "#Action_dpadRight"
+        "button_a"       "#Action_buttonA"
+        "button_b"       "#Action_buttonB"
+        "button_x"       "#Action_buttonB"
+        "button_y"       "#Action_buttonA"
+        "button_lb"      "#Action_buttonL"
+        "button_rb"      "#Action_buttonR"
+        "button_lt"      "#Action_buttonL"
+        "button_rt"      "#Action_buttonR"
+        "button_ls"      "#Action_buttonL"
+        "button_rs"      "#Action_buttonR"
+        "button_start"   "#Action_buttonStart"
+        "button_select"  "#Action_buttonSelect"
+      }
+    }
+  }
+  "localization"
+  {
+    "english"
+    {
+      "Set_Ingame"            "In-Game Controls"
+      "Action_Move"           "Movement"
+      "Action_dpadUp"         "Move Up"
+      "Action_dpadDown"       "Move Down"
+      "Action_dpadLeft"       "Move Left"
+      "Action_dpadRight"      "Move Right"
+      "Action_buttonA"        "A"
+      "Action_buttonB"        "B"
+      "Action_buttonL"        "L"
+      "Action_buttonR"        "R"
+      "Action_buttonStart"    "Pause"
+      "Action_buttonSelect"   "Cancel"
+    }
+  }
+}

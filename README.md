@@ -121,7 +121,22 @@ make
 
 Steamworks 設定の「アプリケーション」→「Steam クラウド」に次の設定をしてください:
 
-todo
+__Steam クラウド設定:__
+
+- ユーザーごとのバイトクォータ: `4194304`
+- ユーザーごとに許可されるファイル数: `32`
+
+上記設定基準は参考です。
+
+- Dewpoint Advance では、save.dat（SRAM/Flash/EEPROM）、config.dat（ウィンドウ状態）、リプレイx16ボードで最大18ファイルをSteamクラウドに保存しますが、余裕をもって32個に設定しておけば安心です。
+- リプレイのデータサイズは 1フレーム 4bytes で 60分（216,000フレーム）記録する場合、最大 864,000 バイトと計算できます。（※Dewpoint Advance SDKのリプレイAPIはネイティブメモリに記録されるためGBA側のRAMを使いません）
+
+__Steam 自動クラウド設定:__
+
+- ルート: `アプリのインストールディレクトリ`
+- サブディレクトリ: `save`
+- パターン: `*.dat`
+- OS: `全てのOS`
 
 ### Steam Input
 
@@ -130,6 +145,30 @@ Steamworks 設定の「アプリケーション」→「Steam 入力」に次の
 - コントローラにSteam入力を選択: `Xbox`, `PlayStation`, `Nintendo Switch` をチェック
 - Steam入力デフォルトコントローラ設定: `カスタム設定`
   - マニフェストファイルパス: `action_manifest.vdf`
+
+GameBoy Advance の各ボタン（d-pad, A, B, Start, Select, L, R）の役割は [./vdf/action_manifest.vdf](./vdf/action_manifest.vdf) を適宜編集してください。
+
+なお、Xbox, PlayStation, Nintendo Switch のボタンアサインは次のように割り当てられます。
+
+| Xbox | PlayStation | Nintendo Switch | GBA          |
+|:----:|:-----------:|:---------------:|:------------:|
+| d-pad| d-pad       | d-pad           | d-pad        |
+| A    | ×           | A               | A            |
+| B    | ○           | B               | B            |
+| X    | ◻︎           | X               | B            |
+| Y    | △           | Y               | A            |
+| Menu | Menu        | plus            | Start        |
+| View | Share       | minus           | Select       |
+| LB   | L1          | L               | L            |
+| RB   | R1          | R               | R            |
+| LT   | L2          | ZL              | L            |
+| RT   | R2          | ZR              | R            |
+| LS   | L3          | L3              | L            |
+| RS   | R3          | R3              | R            |
+
+このデフォルト割り当ては [./vdf/action_manifest.vdf](./vdf/action_manifest.vdf) を編集することで変更できます。
+
+各自のゲームに適したアサインをしてください。
 
 ### Steam Leaderboard
 
