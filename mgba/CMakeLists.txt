@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.10)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/src/platform/cmake/")
 
 if(POLICY CMP0025)
@@ -219,7 +219,7 @@ if(WIN32)
 	else()
 		add_definitions(-D_GNU_SOURCE)
 		if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-			add_compile_definitions(_FILE_OFFSET_BITS=64)
+			add_definitions(-D_FILE_OFFSET_BITS=64)
 		endif()
 	endif()
 	list(APPEND OS_LIB ws2_32 shlwapi)
@@ -253,7 +253,9 @@ if(APPLE)
 
 	# Xcode 15 introduced a warning about duplicate libraries that CMake doesn't disable itself, we do it here globally
 	if(MACOSX_SDK VERSION_GREATER_EQUAL 10.15)
-		add_link_options(LINKER:-no_warn_duplicate_libraries)
+		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-no_warn_duplicate_libraries")
+		set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-no_warn_duplicate_libraries")
+		set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-no_warn_duplicate_libraries")
 	endif()
 
 	if(NOT CMAKE_SYSTEM_VERSION VERSION_LESS "10.0") # Darwin 10.x is Mac OS X 10.6
