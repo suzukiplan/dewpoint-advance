@@ -47,6 +47,13 @@
 
 namespace
 {
+static_assert(GBA_VRAM_WIDTH == GBA_VIDEO_HORIZONTAL_PIXELS,
+              "VRAM width must match the mGBA video output width");
+static_assert(GBA_VRAM_HEIGHT == GBA_VIDEO_VERTICAL_PIXELS,
+              "VRAM height must match the mGBA video output height");
+static_assert(sizeof(uint32_t) == sizeof(mColor),
+              "VRAM pixel size must match the mGBA video output pixel size");
+
 constexpr unsigned OUTPUT_SAMPLE_RATE = 44100;
 constexpr size_t AUDIO_BUFFER_FRAMES = 2048;
 constexpr size_t AUDIO_CHANNELS = 2;
