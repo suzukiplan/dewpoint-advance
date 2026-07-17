@@ -53,7 +53,9 @@ flowchart
 - [x] SDK: Replay API for GBA (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
 - [x] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
 - [x] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
-- [ ] パッケージ作成手順の実装
+- [ ] パッケージ作成手順の実装 (Windows)
+- [ ] パッケージ作成手順の実装 (macOS)
+- [ ] パッケージ作成手順の実装 (Linux)
 - [x] ライセンス精査
 - [x] リポジトリのpublic化
 
@@ -136,10 +138,16 @@ __Steam クラウド設定:__
 
 __Steam 自動クラウド設定:__
 
-- ルート: `アプリのインストールディレクトリ`
-- サブディレクトリ: `save`
-- パターン: `*.dat`
-- OS: `全てのOS`
+- `save.dat` (SRAM/Flash/EEPROM)
+  - ルート: `アプリのインストールディレクトリ`
+  - サブディレクトリ: `save`
+  - パターン: `save.dat`
+  - OS: `全てのOS`
+- `config.dat` (ウィドウモード、ウィンドウサイズ、ウィンドウ位置など)
+  - ルート: `アプリのインストールディレクトリ`
+  - サブディレクトリ: `save`
+  - パターン: `config.dat`
+  - OS: `全てのOS`
 
 ### Steam Input
 
@@ -147,9 +155,9 @@ Steamworks 設定の「アプリケーション」→「Steam 入力」に次の
 
 - コントローラにSteam入力を選択: `Xbox`, `PlayStation`, `Nintendo Switch` をチェック
 - Steam入力デフォルトコントローラ設定: `カスタム設定`
-  - マニフェストファイルパス: `action_manifest.vdf`
+- マニフェストファイルパス: `action_manifest.vdf`
 
-GameBoy Advance の各ボタン（d-pad, A, B, Start, Select, L, R）の役割は [./vdf/action_manifest.vdf](./vdf/action_manifest.vdf) を適宜編集してください。
+GameBoy Advance の各ボタン（d-pad, A, B, Start, Select, L, R）の役割は package.conf を適宜編集してください。
 
 なお、Xbox, PlayStation, Nintendo Switch のボタンアサインは次のように割り当てられます。
 
