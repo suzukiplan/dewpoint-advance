@@ -16,6 +16,7 @@ CXX ?= clang++
 CC ?= clang
 CMAKE ?= cmake
 SDL2_CONFIG ?= sdl2-config
+SDL2_STATIC_LIBRARY ?= /usr/local/lib/libSDL2.a
 
 TARGET := ${ExeName}
 BUILD_DIR := build/Darwin
@@ -39,7 +40,7 @@ CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic -MMD -MP
 CFLAGS ?= -O2 -g
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -MMD -MP
 LDFLAGS += -Wl,-rpath,@executable_path/$(MGBA_BUILD_DIR) -Wl,-rpath,@executable_path \
-	-Wl,-force_load,/usr/local/lib/libSDL2.a
+	-Wl,-force_load,$(SDL2_STATIC_LIBRARY)
 LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) \
 	-framework Cocoa \
 	-framework CoreAudio \
@@ -58,8 +59,12 @@ LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) \
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS) $(MGBA_LIBRARY) $(STEAM_RUNTIME_LIBRARY)
+$(TARGET): $(OBJECTS) $(MGBA_LIBRARY) $(STEAM_RUNTIME_LIBRARY) $(SDL2_STATIC_LIBRARY) Makefile.Darwin
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(OBJECTS) $(LDLIBS) -o $@
+	@if otool -L "$@" | grep -q 'libSDL2.*\.dylib'; then \
+		echo "Dynamic SDL2 dependency detected in $@; expected a static link" >&2; \
+		exit 1; \
+	fi
 
 $(STEAM_RUNTIME_LIBRARY): $(STEAM_LIBRARY)
 	cp -p $< $@
@@ -99,7 +104,7 @@ debug: all
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET) $(STEAM_RUNTIME_LIBRARY) vram.bmp
 
-package: all $(ENTITLEMENTS)
+package: clean all $(ENTITLEMENTS)
 	-@rm -rf release
 	mkdir -p release
 	mkdir -p "${APP_MACOS}"
