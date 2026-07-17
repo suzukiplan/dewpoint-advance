@@ -14,5 +14,7 @@ steam_appid.txt
 package.conf
 src/game_rom.c
 src/dewpoint_define.h
+Makefile.Darwin
 config.dat
 save.dat
+

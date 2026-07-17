@@ -65,18 +65,19 @@ flowchart
 2. Steamworks SDK を入手
 3. [./steamworks](./steamworks/) ディレクトリ以下に `public` および `redistributable_bin` ディレクトリを配置
 
-### Build
+### Build for Test
 
 ```bash
 git clone https://github.com/suzukiplan/dewpoint-advance
 cd dewpoint-advance
+cp package.conf.model package.conf
 make
 ```
 
 ### Execute
 
 ```bash
-./game /path/to/game.gba
+./game
 ```
 
 - カーソルキー: D-pad
