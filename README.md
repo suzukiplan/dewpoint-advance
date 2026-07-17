@@ -1,4 +1,4 @@
-# Dewpoint Advance **<WIP>**
+# **WIP:** Dewpoint Advance
 
 Dewpoint Advance (DPA) は、**自作の GBA ソフト** を Steam で頒布する目的に特化したエミュレータフロントエンドです。
 
