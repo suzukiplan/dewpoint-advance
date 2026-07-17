@@ -14,6 +14,7 @@ CMAKE ?= cmake
 TARGET := ${ExeName}
 BUILD_DIR := build/Linux
 MGBA_BUILD_DIR := $(BUILD_DIR)/mgba
+MGBA_SOURCE_DIR := $(abspath mgba)
 MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.so
 MGBA_RUNTIME_NAME = $(notdir $(shell readlink $(MGBA_LIBRARY) 2>/dev/null))
 STEAM_LIBRARY := steamworks/redistributable_bin/linux64/libsteam_api.so
@@ -63,7 +64,8 @@ $(BUILD_DIR)/%.o: src/%.c | $(MGBA_LIBRARY)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(MGBA_LIBRARY): mgba/CMakeLists.txt
-	$(CMAKE) -S mgba -B $(MGBA_BUILD_DIR) \
+	@mkdir -p $(MGBA_BUILD_DIR)
+	cd $(MGBA_BUILD_DIR) && $(CMAKE) \
 		-DLIBMGBA_ONLY=OFF \
 		-DDISABLE_FRONTENDS=ON \
 		-DDISABLE_DEPS=ON \
@@ -78,8 +80,9 @@ $(MGBA_LIBRARY): mgba/CMakeLists.txt
 		-DBUILD_SHARED=ON \
 		-DBUILD_STATIC=OFF \
 		-DBUILD_LTO=OFF \
-		-DCMAKE_BUILD_TYPE=Release
-	$(CMAKE) --build $(MGBA_BUILD_DIR) --target mgba --parallel
+		-DCMAKE_BUILD_TYPE=Release \
+		$(MGBA_SOURCE_DIR)
+	$(MAKE) -C $(MGBA_BUILD_DIR) mgba
 
 mgba: $(MGBA_LIBRARY)
 
