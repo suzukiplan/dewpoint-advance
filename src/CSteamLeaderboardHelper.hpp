@@ -108,6 +108,9 @@ class CSteamLeaderboardHelper
     size_t ugcSizeLimit;
     SteamLeaderboard_t leaderboard;
     SendScoreState sendScoreState;
+    bool sendScoreDeferred;
+    int deferredScore;
+    std::vector<uint8_t> deferredUGCData;
     std::function<void(const char*)> logger;
     std::function<void(const uint8_t* data, size_t size)> ugcDownloadCallback;
     bool reloadDeferred;
@@ -170,8 +173,8 @@ class CSteamLeaderboardHelper
         ugcUploadData.clear();
         ugcUploadFilename.clear();
         if (shouldReload) {
-            if (ugcDownloadCallback) {
-                putlog("Reload deferred: UGC download is still in progress (%s).", boardName.c_str());
+            if (ugcDownloadCallback || downloadTopState == DownloadState::InProgress || downloadMineState == DownloadState::InProgress) {
+                putlog("Reload deferred: another download is still in progress (%s).", boardName.c_str());
                 reloadDeferred = true;
             } else {
                 this->reload();
@@ -237,6 +240,8 @@ class CSteamLeaderboardHelper
           ugcSizeLimit(ugcSizeLimit),
           leaderboard(0),
           sendScoreState(SendScoreState::Idle),
+          sendScoreDeferred(false),
+          deferredScore(0),
           reloadDeferred(false),
           topRanksDownloaded(false),
           myRankDownloaded(false),
@@ -284,7 +289,7 @@ class CSteamLeaderboardHelper
      */
     bool isSendScoreBusy(void) const
     {
-        return sendScoreState != SendScoreState::Idle;
+        return sendScoreDeferred || sendScoreState != SendScoreState::Idle;
     }
 
     /**
@@ -585,16 +590,31 @@ class CSteamLeaderboardHelper
      */
     bool sendScore(int score, const uint8_t* data, size_t size)
     {
+        if (data && size > ugcSizeLimit) {
+            putlog("Upload failed: UGC size limit exceeded (size=%zu, limit=%zu) (%s).", size, ugcSizeLimit, boardName.c_str());
+            return false;
+        }
+        if (initState == InitState::InProgress) {
+            if (sendScoreDeferred) {
+                putlog("Upload failed: another sendScore request is waiting for initialization (%s).", boardName.c_str());
+                return false;
+            }
+            deferredScore = score;
+            if (data && 0 < size) {
+                deferredUGCData.assign(data, data + size);
+            } else {
+                deferredUGCData.clear();
+            }
+            sendScoreDeferred = true;
+            putlog("Upload deferred until leaderboard initialization completes (%s).", boardName.c_str());
+            return true;
+        }
         if (initState != InitState::DoneOk || 0 == leaderboard) {
             putlog("Upload failed: leaderboard is not initialized (%s).", boardName.c_str());
             return false;
         }
         if (isSendScoreBusy()) {
             putlog("Upload failed: another sendScore request is still in progress (%s).", boardName.c_str());
-            return false;
-        }
-        if (data && size > ugcSizeLimit) {
-            putlog("Upload failed: UGC size limit exceeded (size=%zu, limit=%zu) (%s).", size, ugcSizeLimit, boardName.c_str());
             return false;
         }
         auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
@@ -634,6 +654,11 @@ class CSteamLeaderboardHelper
         if (failed || !callback || !callback->m_bLeaderboardFound) {
             putlog("Leaderboard not found or request failed: %s", boardName.c_str());
             initState = InitState::DoneError;
+            if (sendScoreDeferred) {
+                putlog("Deferred upload canceled because leaderboard initialization failed (%s).", boardName.c_str());
+                sendScoreDeferred = false;
+                deferredUGCData.clear();
+            }
             return;
         }
         initState = InitState::DoneOk;
@@ -641,6 +666,14 @@ class CSteamLeaderboardHelper
         this->leaderboard = callback->m_hSteamLeaderboard;
         if (needReloadAfterFindLeaderboard) {
             this->reload();
+        }
+        if (sendScoreDeferred) {
+            const int score = deferredScore;
+            std::vector<uint8_t> data = std::move(deferredUGCData);
+            sendScoreDeferred = false;
+            if (!this->sendScore(score, data.empty() ? nullptr : data.data(), data.size())) {
+                putlog("Deferred upload failed after leaderboard initialization (%s).", boardName.c_str());
+            }
         }
     }
 
