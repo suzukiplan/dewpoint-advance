@@ -97,6 +97,8 @@ make
 
 | API | Description |
 |:----|:------------|
+| `dpa_is_enabled` | Dewpoint Advance SDK が利用できるかチェック |
+| `dpa_get_app_version` | アプリバージョン（AppVersion）の文字列を取得 |
 | `dpa_achievement_unlock` | アチーブメントをアンロック |
 | `dpa_leaderboard_send` | スコアを送信 |
 | `dpa_leaderboard_ready` | リーダーボードからエントリが取得可能か確認 |

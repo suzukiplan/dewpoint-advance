@@ -1,4 +1,7 @@
 AppName = Your App Name
+AppVersion = 1.0
+ExeName = game
+BundleId = com.example.your.app
 IconFile = /path/to/icon.png
 RomFile = ./example.gba
 ButtonDescMove = Movement

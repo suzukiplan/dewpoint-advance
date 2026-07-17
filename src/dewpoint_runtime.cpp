@@ -7,6 +7,7 @@
 #include "dewpoint_runtime.h"
 
 #include "CSteamLeaderboardHelper.hpp"
+#include "dewpoint_define.h"
 
 #include <array>
 #include <cstdint>
@@ -42,6 +43,7 @@ enum DpaIndex : uint32_t {
     DpaIndexUgcRead,
     DpaIndexExit,
     DpaIndexFullScreen,
+    DpaAppVersion,
 };
 
 struct GuestLeaderboardEntry {
@@ -361,6 +363,12 @@ void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
     if (index == DpaIndexFullScreen) {
         const bool requested = value != 0;
         impl->fullscreen = impl->fullscreenSetter ? impl->fullscreenSetter(requested) : requested;
+        return;
+    }
+    if (index == DpaAppVersion) {
+        if (!impl->gba.writeGuestMemory(value, APP_VERSION, sizeof(APP_VERSION))) {
+            impl->log("Rejected app version destination outside GBA work RAM.");
+        }
         return;
     }
     if (!impl->steamInitialized) {

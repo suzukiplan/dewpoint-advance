@@ -43,6 +43,7 @@ enum DpaIndex {
     DpaIndexUgcRead,       // [I] UGC データの読み込み
     DpaIndexExit,          // [O] プロセス停止 (exit)
     DpaIndexFullScreen,    // [I/O] フルスクリーン (0: Window / not 0: Full Screen)
+    DpaAppVersion,         // [O] アプリケーションバージョン文字列を取得
 };
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
@@ -171,4 +172,13 @@ int dpa_fullscreen_get(void)
         return 0;
     }
     return _dpa[DpaIndexFullScreen] ? 1 : 0;
+}
+
+int dpa_get_app_version(char* buf)
+{
+    if (!dpa_is_enabled_internal()) {
+        return -1;
+    }
+    _dpa[DpaAppVersion] = (uint32_t)buf;
+    return 0;
 }

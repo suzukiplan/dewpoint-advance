@@ -40,6 +40,13 @@ typedef struct {
 int dpa_is_enabled(void);
 
 /**
+ * @brief アプリケーションバージョン文字列（package.confのAppVersion）を取得
+ * @param buf 文字列を格納するのに十分なサイズ（strlen(AppVersion)+1）が確保されたバッファ（RAM）
+ * @return -1: 失敗, 0: 成功
+ */
+int dpa_get_app_version(char* buf);
+
+/**
  * @brief アチーブメントをアンロック
  * @param id アチーブメントID (\0終端のテキスト)
  */

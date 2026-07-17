@@ -4,7 +4,7 @@ all:
 	./tools/makerom/makerom package.conf ./src/game_rom.c
 	make -f Makefile.`uname` all
 
-./src/dewpoint_define.h: ./src/dewpoint_define.h.template
+./src/dewpoint_define.h: ./src/dewpoint_define.h.template ./package.conf
 	./tools/conftype/conftype package.conf ./src/dewpoint_define.h.template >./src/dewpoint_define.h
 
 clean:
