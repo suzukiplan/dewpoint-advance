@@ -94,10 +94,12 @@ int dpa_leaderboard_get(int board_id, int index, LeaderboardEntry* entry)
     if (!dpa_leaderboard_ready(board_id) || !entry) {
         return -1;
     }
+    volatile LeaderboardEntry* volatile_entry = entry;
     _dpa[DpaIndexBoardEntry] = (uint32_t)entry;
-    entry->board_id = -2; // 取得が成功したら board_id と同じ値が設定される
+    volatile_entry->board_id = -2; // 取得が成功したら board_id と同じ値が設定される
     _dpa[DpaIndexBoardEntryGet] = index;
-    return entry->board_id == board_id ? 0 : -1;
+    // ランタイムがGBAのRAMを直接更新するため、必ずメモリから再読み込みする
+    return volatile_entry->board_id == board_id ? 0 : -1;
 }
 
 int dpa_leaderboard_getm(int board_id, LeaderboardEntry* entry)
