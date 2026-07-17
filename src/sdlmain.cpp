@@ -242,6 +242,43 @@ void printUsage(const char* executable)
 {
     std::cerr << "Usage: " << executable << " [-s <save.dat>] [-c <config.dat>] [rom.gba]\n";
 }
+
+bool configureSteamSavePaths(
+    bool usesDefaultSramPath,
+    bool usesDefaultConfigPath,
+    std::string* sramPath,
+    std::string* configPath)
+{
+    auto* apps = SteamApps();
+    auto* utils = SteamUtils();
+    if (!apps || !utils) {
+        std::cerr << "Failed to access Steam installation information\n";
+        return false;
+    }
+
+    std::vector<char> installDirectory(4096);
+    if (apps->GetAppInstallDir(utils->GetAppID(), installDirectory.data(), installDirectory.size()) == 0) {
+        std::cerr << "Failed to get Steam App installation directory\n";
+        return false;
+    }
+
+    const std::filesystem::path saveDirectory = std::filesystem::path(installDirectory.data()) / "save";
+    std::error_code error;
+    std::filesystem::create_directories(saveDirectory, error);
+    if (error) {
+        std::cerr << "Failed to create default save directory: " << saveDirectory << ": "
+                  << error.message() << '\n';
+        return false;
+    }
+
+    if (usesDefaultSramPath) {
+        *sramPath = (saveDirectory / "save.dat").string();
+    }
+    if (usesDefaultConfigPath) {
+        *configPath = (saveDirectory / "config.dat").string();
+    }
+    return true;
+}
 } // namespace
 
 int main(int argc, char* argv[])
@@ -251,6 +288,8 @@ int main(int argc, char* argv[])
     std::string romPath;
     std::string sramPath = "save.dat";
     std::string configPath = "config.dat";
+    bool usesDefaultSramPath = true;
+    bool usesDefaultConfigPath = true;
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
         if (argument == "-s" || argument == "-c") {
@@ -260,8 +299,10 @@ int main(int argc, char* argv[])
             }
             if (argument == "-s") {
                 sramPath = argv[i];
+                usesDefaultSramPath = false;
             } else {
                 configPath = argv[i];
+                usesDefaultConfigPath = false;
             }
         } else if (!romPath.empty()) {
             printUsage(argv[0]);
@@ -270,6 +311,17 @@ int main(int argc, char* argv[])
             romPath = argument;
         }
     }
+
+    mGBAHelper gba;
+    DewpointRuntime dewpoint(gba, [](const char* message) {
+        std::cerr << "[Steam] " << message << '\n';
+    });
+    const bool steamInitialized = dewpoint.initialize();
+    if (steamInitialized && (usesDefaultSramPath || usesDefaultConfigPath) &&
+        !configureSteamSavePaths(usesDefaultSramPath, usesDefaultConfigPath, &sramPath, &configPath)) {
+        return 1;
+    }
+
     std::vector<uint8_t> rom;
     const uint8_t* romData = game_rom;
     size_t romSize = game_rom_size;
@@ -282,7 +334,6 @@ int main(int argc, char* argv[])
         romSize = rom.size();
     }
 
-    mGBAHelper gba;
     gba.setSramPath(sramPath);
     if (!gba.load(romData, romSize)) {
         if (romPath.empty()) {
@@ -293,10 +344,6 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    DewpointRuntime dewpoint(gba, [](const char* message) {
-        std::cerr << "[Steam] " << message << '\n';
-    });
-    const bool steamInitialized = dewpoint.initialize();
     CSteam steamInput;
     steamInput.setLoggger([](const char* message) {
         std::cerr << "[SteamInput] " << message << '\n';
