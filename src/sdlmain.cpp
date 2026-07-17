@@ -250,6 +250,19 @@ void printUsage(const char* executable)
     std::cerr << "Usage: " << executable << " [-s <save.dat>] [-c <config.dat>] [rom.gba]\n";
 }
 
+bool getApplicationInstallDirectory(std::filesystem::path* installDirectory)
+{
+    char* basePath = SDL_GetBasePath();
+    if (!basePath) {
+        std::cerr << "Failed to get application installation directory: " << SDL_GetError() << '\n';
+        return false;
+    }
+
+    *installDirectory = basePath;
+    SDL_free(basePath);
+    return true;
+}
+
 bool getSteamInstallDirectory(std::filesystem::path* installDirectory)
 {
     auto* apps = SteamApps();
@@ -351,6 +364,20 @@ int main(int argc, char* argv[])
         }
     }
 
+    std::filesystem::path logInstallDirectory;
+    bool logsRedirected = false;
+    if (SteamAPI_IsSteamRunning()) {
+        if (!getApplicationInstallDirectory(&logInstallDirectory)) {
+            return 1;
+        }
+        const std::filesystem::path logPath = logInstallDirectory / "log.txt";
+        if (!redirectLogsToFile(logPath)) {
+            std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
+            return 1;
+        }
+        logsRedirected = true;
+    }
+
     mGBAHelper gba;
     DewpointRuntime dewpoint(gba, [](const char* message) {
         std::cerr << "[Steam] " << message << '\n';
@@ -361,10 +388,12 @@ int main(int argc, char* argv[])
         if (!getSteamInstallDirectory(&installDirectory)) {
             return 1;
         }
-        const std::filesystem::path logPath = installDirectory / "log.txt";
-        if (!redirectLogsToFile(logPath)) {
-            std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
-            return 1;
+        if (!logsRedirected || logInstallDirectory.lexically_normal() != installDirectory.lexically_normal()) {
+            const std::filesystem::path logPath = installDirectory / "log.txt";
+            if (!redirectLogsToFile(logPath)) {
+                std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
+                return 1;
+            }
         }
         if ((usesDefaultSramPath || usesDefaultConfigPath) &&
             !configureSteamSavePaths(

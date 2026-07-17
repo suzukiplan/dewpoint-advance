@@ -35,5 +35,8 @@
 
     <key>NSMainNibFile</key>
     <string></string>
+
+    <key>SDL_FILESYSTEM_BASE_DIR_TYPE</key>
+    <string>parent</string>
 </dict>
 </plist>

@@ -10,7 +10,7 @@ APP_MACOS = ${APP_CONTENTS}/MacOS
 APP_ICON_PNG = ${IconFile}
 APP_ICONSET = ${APP_RES}/AppIcon.iconset
 APP_ICON_ICNS = ${APP_RES}/AppIcon.icns
-ENTITLEMENTS = mgba/res/entitlements.plist
+ENTITLEMENTS = entitlements.plist
 
 CXX ?= clang++
 CC ?= clang
