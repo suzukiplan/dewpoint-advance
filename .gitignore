@@ -1,6 +1,7 @@
 build/**
 vgsx/**
 games/**
+release/**
 game
 libsteam_api.dylib
 vram.bmp
@@ -14,7 +15,8 @@ steam_appid.txt
 package.conf
 src/game_rom.c
 src/dewpoint_define.h
+vdf/action_manifest.vdf
 Makefile.Darwin
 config.dat
 save.dat
-
+*.zip

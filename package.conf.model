@@ -1,9 +1,13 @@
 AppName = Your App Name
 AppVersion = 1.0
 ExeName = game
-BundleId = com.example.your.app
 IconFile = /path/to/icon.png
 RomFile = ./example.gba
+ReleaseZipWindows = ./game_windows.zip
+ReleaseZipMacOs = ./game_macos.zip
+ReleaseZipLinux = ./game_linux.zip
+
+# SteamInput: Button Description
 ButtonDescMove = Movement
 ButtonDescUp = Move Up
 ButtonDescDown = Move Down
@@ -13,5 +17,11 @@ ButtonDescA = Jump
 ButtonDescB = Fire
 ButtonDescL = Page Left
 ButtonDescR = Page Right
-ButtonDescSelect = Cancel
-ButtonDescStart = Pause
+ButtonDescSelect = View
+ButtonDescStart = Menu
+
+# macOS App Settings
+BundleId = com.example.your.app
+AppleId = Your Apple ID (ex: email@example.com)
+AppleTeamId = Your Apple Team Id (ex: Jxxxxxxxxx)
+CodeSignId = Developer ID Application: Your Name (AppleTeamId)

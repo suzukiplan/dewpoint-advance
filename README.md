@@ -54,7 +54,7 @@ flowchart
 - [x] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
 - [x] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
 - [ ] パッケージ作成手順の実装 (Windows)
-- [ ] パッケージ作成手順の実装 (macOS)
+- [x] パッケージ作成手順の実装 (macOS)
 - [ ] パッケージ作成手順の実装 (Linux)
 - [x] ライセンス精査
 - [x] リポジトリのpublic化
