@@ -56,7 +56,7 @@ void dpa_achievement_unlock(const char* id);
  * @brief スコアを送信
  * @param board_id スコアボードID (0~15)
  * @param score スコア
- * @param ugc 0: UGCデータを送信しない, not 0: 現在記録されているUGCデータを送信
+ * @param ugc 0: UGCデータを送信しない, not 0: 共通UGCバッファのデータを送信
  */
 void dpa_leaderboard_send(int board_id, int32_t score, int ugc);
 
@@ -85,31 +85,31 @@ int dpa_leaderboard_get(int board_id, int index, LeaderboardEntry* entry);
 int dpa_leaderboard_getm(int board_id, LeaderboardEntry* entry);
 
 /**
- * @brief UGCデータをクリア
+ * @brief 共通UGCバッファをクリア
  */
 void dpa_ugc_clear(void);
 
 /**
- * @brief UGCデータを追加
+ * @brief 共通UGCバッファにデータを追加
  * @param data 追加するデータ（32bit）
  */
 void dpa_ugc_append(int32_t data);
 
 /**
- * @brief UGCデータをダウンロード開始リクエスト
+ * @brief UGCデータを共通UGCバッファへダウンロード開始リクエスト
  * @param entry ダウンロード対象のリーダーボード・エントリ
  */
 void dpa_ugc_download(LeaderboardEntry* entry);
 
 /**
- * @brief UGCデータのサイズチェック
+ * @brief 共通UGCバッファのサイズチェック
  * @return 0: empty or downloading, 0<: available, -1: error
- * @remark ダウンロード・リクエストをすると 0 になり、完了するとダウンロードサイズが取得できる
+ * @remark ダウンロード・リクエストをすると共通UGCバッファがクリアされ、完了するとダウンロードサイズが取得できる
  */
 int dpa_ugc_size(void);
 
 /**
- * @brief UGCデータを読み込む
+ * @brief 共通UGCバッファからデータを読み込む
  * @return UGCデータ (指定indexにデータが無い場合は -1 を返す)
  */
 int32_t dpa_ugc_read(int index);

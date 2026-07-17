@@ -108,11 +108,11 @@ make
 | `dpa_leaderboard_ready` | リーダーボードからエントリが取得可能か確認 |
 | `dpa_leaderboard_get` | リーダーボードからTop100のエントリを取得 |
 | `dpa_leaderboard_getm` | リーダーボードから自分のエントリを取得 |
-| `dpa_ugc_clear` | UGC データをクリア |
-| `dpa_ugc_append` | UGC に 4bytes のデータを追加 |
-| `dpa_ugc_download` | UGC データのダウンロードを開始 |
-| `dpa_ugc_size` | UGC データのサイズ取得（ダウンロード完了確認） |
-| `dpa_ugc_read` | UGC データを 4bytes 読み込む |
+| `dpa_ugc_clear` | 共通 UGC バッファをクリア |
+| `dpa_ugc_append` | 共通 UGC バッファに 4bytes のデータを追加 |
+| `dpa_ugc_download` | 共通 UGC バッファへのダウンロードを開始 |
+| `dpa_ugc_size` | 共通 UGC バッファのサイズを取得 |
+| `dpa_ugc_read` | 共通 UGC バッファから 4bytes 読み込む |
 | `dpa_fullscreen_set` | フルスクリーン / ウィンドウの切り替え|
 | `dpa_fullscreen_get` | フルスクリーン / ウィンドウの状態取得|
 | `dpa_exit` | プロセス停止（実機ではハングアップ）|

@@ -96,13 +96,12 @@ struct DewpointRuntime::Impl {
     bool sendUgc;
     uint32_t guestEntryAddress;
     uint32_t ugcReadIndex;
-    int32_t ugcDownloadSize;
-    uint64_t protocolGeneration;
+    int32_t ugcSize;
+    uint64_t ugcGeneration;
     std::string achievementId;
     bool achievementOverflow;
-    std::vector<uint8_t> ugcUploadData;
-    bool ugcUploadOverflow;
-    std::vector<uint8_t> ugcDownloadData;
+    std::vector<uint8_t> ugcData;
+    bool ugcOverflow;
     std::array<std::unique_ptr<CSteamLeaderboardHelper>, BOARD_COUNT> boards;
     std::array<bool, BOARD_COUNT> boardInitializationAttempted;
     std::unordered_map<uint32_t, EntryReference> entryReferences;
@@ -110,8 +109,8 @@ struct DewpointRuntime::Impl {
     Impl(mGBAHelper& gba, Logger logger)
         : gba(gba), logger(std::move(logger)), steamInitialized(false), fullscreen(false), exitRequested(false),
           exitCode(0), selectedBoardId(-1), sendUgc(false), guestEntryAddress(0), ugcReadIndex(0),
-          ugcDownloadSize(0), protocolGeneration(0),
-          achievementOverflow(false), ugcUploadOverflow(false), boardInitializationAttempted{}
+          ugcSize(0), ugcGeneration(0),
+          achievementOverflow(false), ugcOverflow(false), boardInitializationAttempted{}
     {
     }
 
@@ -190,61 +189,71 @@ struct DewpointRuntime::Impl {
 
     void downloadUgc()
     {
-        ugcDownloadData.clear();
-        ugcDownloadSize = 0;
+        clearUgc();
         auto reference = entryReferences.find(guestEntryAddress);
         if (reference == entryReferences.end() || reference->second.boardId != selectedBoardId) {
-            ugcDownloadSize = -1;
+            ugcSize = -1;
             log("Rejected UGC download for an unknown leaderboard entry.");
             return;
         }
         CSteamLeaderboardHelper* board = getBoard(selectedBoardId, false);
         LeaderboardEntry_t* entry = resolveEntry(reference->second);
         if (!board || !entry) {
-            ugcDownloadSize = -1;
+            ugcSize = -1;
             return;
         }
-        const uint64_t generation = protocolGeneration;
+        const uint64_t generation = ugcGeneration;
         board->downloadUGC(entry, [this, generation](const uint8_t* data, size_t size) {
-            if (generation != protocolGeneration) {
+            if (generation != ugcGeneration) {
                 return;
             }
             if (!data || !size || size > MAX_UGC_SIZE) {
-                ugcDownloadData.clear();
-                ugcDownloadSize = -1;
+                ugcData.clear();
+                ugcSize = -1;
                 return;
             }
-            ugcDownloadData.assign(data, data + size);
-            ugcDownloadSize = static_cast<int32_t>(size);
+            ugcData.assign(data, data + size);
+            ugcSize = static_cast<int32_t>(size);
         });
     }
 
     uint32_t readUgcWord() const
     {
         const uint64_t offset = static_cast<uint64_t>(ugcReadIndex) * sizeof(uint32_t);
-        if (offset + sizeof(uint32_t) > ugcDownloadData.size()) {
+        if (offset + sizeof(uint32_t) > ugcData.size()) {
             return UINT32_MAX;
         }
         const size_t position = static_cast<size_t>(offset);
-        return static_cast<uint32_t>(ugcDownloadData[position]) |
-               (static_cast<uint32_t>(ugcDownloadData[position + 1]) << 8) |
-               (static_cast<uint32_t>(ugcDownloadData[position + 2]) << 16) |
-               (static_cast<uint32_t>(ugcDownloadData[position + 3]) << 24);
+        return static_cast<uint32_t>(ugcData[position]) |
+               (static_cast<uint32_t>(ugcData[position + 1]) << 8) |
+               (static_cast<uint32_t>(ugcData[position + 2]) << 16) |
+               (static_cast<uint32_t>(ugcData[position + 3]) << 24);
     }
 
     void appendUgcWord(uint32_t value)
     {
-        if (ugcUploadData.size() > MAX_UGC_SIZE - sizeof(value)) {
-            if (!ugcUploadOverflow) {
-                log("UGC upload buffer limit exceeded; upload rejected.");
-                ugcUploadOverflow = true;
+        ++ugcGeneration;
+        if (ugcData.size() > MAX_UGC_SIZE - sizeof(value)) {
+            if (!ugcOverflow) {
+                log("UGC buffer limit exceeded; append rejected.");
+                ugcOverflow = true;
             }
             return;
         }
-        ugcUploadData.push_back(static_cast<uint8_t>(value));
-        ugcUploadData.push_back(static_cast<uint8_t>(value >> 8));
-        ugcUploadData.push_back(static_cast<uint8_t>(value >> 16));
-        ugcUploadData.push_back(static_cast<uint8_t>(value >> 24));
+        ugcData.push_back(static_cast<uint8_t>(value));
+        ugcData.push_back(static_cast<uint8_t>(value >> 8));
+        ugcData.push_back(static_cast<uint8_t>(value >> 16));
+        ugcData.push_back(static_cast<uint8_t>(value >> 24));
+        ugcSize = static_cast<int32_t>(ugcData.size());
+    }
+
+    void clearUgc()
+    {
+        ++ugcGeneration;
+        ugcReadIndex = 0;
+        ugcSize = 0;
+        ugcData.clear();
+        ugcOverflow = false;
     }
 
     void submitAchievement()
@@ -265,17 +274,12 @@ struct DewpointRuntime::Impl {
 
     void resetProtocol()
     {
-        ++protocolGeneration;
         selectedBoardId = -1;
         sendUgc = false;
         guestEntryAddress = 0;
-        ugcReadIndex = 0;
-        ugcDownloadSize = 0;
         achievementId.clear();
         achievementOverflow = false;
-        ugcUploadData.clear();
-        ugcUploadOverflow = false;
-        ugcDownloadData.clear();
+        clearUgc();
         entryReferences.clear();
     }
 };
@@ -345,7 +349,7 @@ uint32_t DewpointRuntime::readRegister(uint32_t index)
             CSteamLeaderboardHelper* board = impl->getBoard(impl->selectedBoardId, true);
             return board && board->isReady() ? 1 : 0;
         }
-        case DpaIndexUgcSize: return static_cast<uint32_t>(impl->ugcDownloadSize);
+        case DpaIndexUgcSize: return static_cast<uint32_t>(impl->ugcSize);
         case DpaIndexUgcRead: return impl->readUgcWord();
         default: return 0;
     }
@@ -396,10 +400,10 @@ void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
         case DpaIndexSendScore: {
             CSteamLeaderboardHelper* board = impl->getBoard(impl->selectedBoardId, true);
             if (board) {
-                if (impl->sendUgc && impl->ugcUploadOverflow) {
+                if (impl->sendUgc && impl->ugcOverflow) {
                     impl->log("Score upload rejected because its UGC buffer overflowed.");
-                } else if (impl->sendUgc && !impl->ugcUploadData.empty()) {
-                    board->sendScore(static_cast<int32_t>(value), impl->ugcUploadData.data(), impl->ugcUploadData.size());
+                } else if (impl->sendUgc && !impl->ugcData.empty()) {
+                    board->sendScore(static_cast<int32_t>(value), impl->ugcData.data(), impl->ugcData.size());
                 } else {
                     board->sendScore(static_cast<int32_t>(value));
                 }
@@ -408,10 +412,7 @@ void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
         }
         case DpaIndexBoardEntry: impl->guestEntryAddress = value; break;
         case DpaIndexBoardEntryGet: impl->writeEntry(static_cast<int32_t>(value)); break;
-        case DpaIndexUgcClear:
-            impl->ugcUploadData.clear();
-            impl->ugcUploadOverflow = false;
-            break;
+        case DpaIndexUgcClear: impl->clearUgc(); break;
         case DpaIndexUgcAppend: impl->appendUgcWord(value); break;
         case DpaIndexUgcDownload: impl->downloadUgc(); break;
         case DpaIndexUgcReadPtr: impl->ugcReadIndex = value; break;
