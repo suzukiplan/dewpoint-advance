@@ -27,6 +27,7 @@
 #include "mgbahelper.h"
 #include "steam.hpp"
 
+#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -37,6 +38,12 @@
 
 #include <mgba/core/log.h>
 #include <SDL.h>
+
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 extern "C" {
 extern const uint8_t game_rom[];
@@ -243,11 +250,7 @@ void printUsage(const char* executable)
     std::cerr << "Usage: " << executable << " [-s <save.dat>] [-c <config.dat>] [rom.gba]\n";
 }
 
-bool configureSteamSavePaths(
-    bool usesDefaultSramPath,
-    bool usesDefaultConfigPath,
-    std::string* sramPath,
-    std::string* configPath)
+bool getSteamInstallDirectory(std::filesystem::path* installDirectory)
 {
     auto* apps = SteamApps();
     auto* utils = SteamUtils();
@@ -256,13 +259,49 @@ bool configureSteamSavePaths(
         return false;
     }
 
-    std::vector<char> installDirectory(4096);
-    if (apps->GetAppInstallDir(utils->GetAppID(), installDirectory.data(), installDirectory.size()) == 0) {
+    std::vector<char> pathBuffer(4096);
+    if (apps->GetAppInstallDir(utils->GetAppID(), pathBuffer.data(), pathBuffer.size()) == 0) {
         std::cerr << "Failed to get Steam App installation directory\n";
         return false;
     }
 
-    const std::filesystem::path saveDirectory = std::filesystem::path(installDirectory.data()) / "save";
+    *installDirectory = pathBuffer.data();
+    return true;
+}
+
+bool redirectLogsToFile(const std::filesystem::path& path)
+{
+    std::cout.flush();
+    std::cerr.flush();
+
+#ifdef _WIN32
+    FILE* logFile = _wfopen(path.c_str(), L"w");
+    const auto redirect = [](FILE* source, FILE* destination) {
+        return _dup2(_fileno(source), _fileno(destination)) == 0;
+    };
+#else
+    FILE* logFile = std::fopen(path.c_str(), "w");
+    const auto redirect = [](FILE* source, FILE* destination) {
+        return dup2(fileno(source), fileno(destination)) >= 0;
+    };
+#endif
+    if (!logFile) {
+        return false;
+    }
+
+    const bool redirected = redirect(logFile, stdout) && redirect(logFile, stderr);
+    std::fclose(logFile);
+    return redirected;
+}
+
+bool configureSteamSavePaths(
+    const std::filesystem::path& installDirectory,
+    bool usesDefaultSramPath,
+    bool usesDefaultConfigPath,
+    std::string* sramPath,
+    std::string* configPath)
+{
+    const std::filesystem::path saveDirectory = installDirectory / "save";
     std::error_code error;
     std::filesystem::create_directories(saveDirectory, error);
     if (error) {
@@ -317,9 +356,25 @@ int main(int argc, char* argv[])
         std::cerr << "[Steam] " << message << '\n';
     });
     const bool steamInitialized = dewpoint.initialize();
-    if (steamInitialized && (usesDefaultSramPath || usesDefaultConfigPath) &&
-        !configureSteamSavePaths(usesDefaultSramPath, usesDefaultConfigPath, &sramPath, &configPath)) {
-        return 1;
+    if (steamInitialized) {
+        std::filesystem::path installDirectory;
+        if (!getSteamInstallDirectory(&installDirectory)) {
+            return 1;
+        }
+        const std::filesystem::path logPath = installDirectory / "log.txt";
+        if (!redirectLogsToFile(logPath)) {
+            std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
+            return 1;
+        }
+        if ((usesDefaultSramPath || usesDefaultConfigPath) &&
+            !configureSteamSavePaths(
+                installDirectory,
+                usesDefaultSramPath,
+                usesDefaultConfigPath,
+                &sramPath,
+                &configPath)) {
+            return 1;
+        }
     }
 
     std::vector<uint8_t> rom;
