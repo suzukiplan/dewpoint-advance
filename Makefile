@@ -1,7 +1,8 @@
 AutoGenerates =\
 	./src/dewpoint_define.h\
 	./vdf/action_manifest.vdf\
-	./Makefile.Darwin
+	./Makefile.Darwin\
+	./Makefile.Linux
 
 all:
 	cd tools && make
@@ -25,4 +26,7 @@ package: all
 	./tools/conftype/conftype package.conf $< >$@
 
 ./Makefile.Darwin: ./Makefile.Darwin.template ./package.conf
+	./tools/conftype/conftype package.conf $< >$@
+
+./Makefile.Linux: ./Makefile.Linux.template ./package.conf
 	./tools/conftype/conftype package.conf $< >$@

@@ -1,0 +1,103 @@
+RELEASE_ZIP := $(abspath ${ReleaseZipLinux})
+RELEASE_DIR := release
+
+# Keep SDL2 out of the Steam package by linking the static build installed here.
+SDL_PREFIX ?= /opt/sdl-static
+PKG_CONFIG ?= pkg-config
+PKG_CONFIG_PATH := $(SDL_PREFIX)/lib/pkgconfig
+SDL_STATIC_LIBRARY := $(SDL_PREFIX)/lib/libSDL2.a
+
+CXX ?= g++
+CC ?= gcc
+CMAKE ?= cmake
+
+TARGET := ${ExeName}
+BUILD_DIR := build/Linux
+MGBA_BUILD_DIR := $(BUILD_DIR)/mgba
+MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.so
+MGBA_RUNTIME_NAME = $(notdir $(shell readlink $(MGBA_LIBRARY) 2>/dev/null))
+STEAM_LIBRARY := steamworks/redistributable_bin/linux64/libsteam_api.so
+STEAM_RUNTIME_LIBRARY := libsteam_api.so
+CPP_SOURCES := src/dewpoint_runtime.cpp src/mgbahelper.cpp src/sdlmain.cpp
+C_SOURCES := src/game_rom.c
+OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(CPP_SOURCES)) \
+	$(patsubst src/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
+DEPFILES := $(OBJECTS:.o=.d)
+
+SDL_CFLAGS = $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --cflags sdl2)
+SDL_LIBS = $(SDL_STATIC_LIBRARY) \
+	$(filter-out -lSDL2,$(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --libs --static sdl2))
+CPPFLAGS := -I./src -isystem ./mgba/include -isystem $(MGBA_BUILD_DIR)/include \
+	-isystem ./steamworks/public/steam \
+	$(SDL_CFLAGS) \
+	-DENABLE_DIRECTORIES -DENABLE_VFS -DLINUX
+CXXFLAGS ?= -O2 -g
+CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic -MMD -MP -fPIE -ftls-model=global-dynamic
+CFLAGS ?= -O2 -g
+CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -MMD -MP -fPIE -ftls-model=global-dynamic
+LDFLAGS += -pie -Wl,--as-needed -Wl,--strip-all \
+	-Wl,-rpath,'$$ORIGIN/$(MGBA_BUILD_DIR)' -Wl,-rpath,'$$ORIGIN'
+LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) $(SDL_LIBS) \
+	-static-libgcc -static-libstdc++
+
+.PHONY: all clean debug mgba package
+
+all: $(TARGET)
+
+$(TARGET): $(OBJECTS) $(MGBA_LIBRARY) $(STEAM_RUNTIME_LIBRARY) $(SDL_STATIC_LIBRARY) Makefile.Linux
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(OBJECTS) $(LDLIBS) -o $@
+	@if readelf -d "$@" | grep -q 'Shared library: \[libSDL2'; then \
+		echo "Dynamic SDL2 dependency detected in $@; expected a static link" >&2; \
+		exit 1; \
+	fi
+
+$(STEAM_RUNTIME_LIBRARY): $(STEAM_LIBRARY)
+	cp -p $< $@
+
+$(BUILD_DIR)/%.o: src/%.cpp | $(MGBA_LIBRARY)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: src/%.c | $(MGBA_LIBRARY)
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(MGBA_LIBRARY): mgba/CMakeLists.txt
+	$(CMAKE) -S mgba -B $(MGBA_BUILD_DIR) \
+		-DLIBMGBA_ONLY=OFF \
+		-DDISABLE_FRONTENDS=ON \
+		-DDISABLE_DEPS=ON \
+		-DENABLE_DEBUGGERS=OFF \
+		-DENABLE_SCRIPTING=OFF \
+		-DUSE_LZMA=OFF \
+		-DM_CORE_GBA=ON \
+		-DM_CORE_GB=OFF \
+		-DBUILD_GL=OFF \
+		-DBUILD_GLES2=OFF \
+		-DBUILD_GLES3=OFF \
+		-DBUILD_SHARED=ON \
+		-DBUILD_STATIC=OFF \
+		-DBUILD_LTO=OFF \
+		-DCMAKE_BUILD_TYPE=Release
+	$(CMAKE) --build $(MGBA_BUILD_DIR) --target mgba --parallel
+
+mgba: $(MGBA_LIBRARY)
+
+debug: all
+	./${ExeName}
+
+clean:
+	rm -rf $(BUILD_DIR) $(TARGET) $(STEAM_RUNTIME_LIBRARY) vram.bmp
+
+package: clean all
+	-@rm -rf $(RELEASE_DIR)
+	mkdir -p $(RELEASE_DIR)
+	rm -f "$(RELEASE_ZIP)"
+	cp -p "$(TARGET)" "$(STEAM_RUNTIME_LIBRARY)" $(RELEASE_DIR)
+	@test -n "$(MGBA_RUNTIME_NAME)" || { echo "Unable to determine the mGBA runtime library name" >&2; exit 1; }
+	cp -pL "$(MGBA_LIBRARY)" "$(RELEASE_DIR)/$(MGBA_RUNTIME_NAME)"
+	cp -p vdf/*.vdf $(RELEASE_DIR)
+	cp -p LICENSE* $(RELEASE_DIR)
+	cd $(RELEASE_DIR) && zip -r "$(RELEASE_ZIP)" *
+
+-include $(DEPFILES)

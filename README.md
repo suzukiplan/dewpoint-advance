@@ -48,14 +48,14 @@ flowchart
 ## WIP status
 
 - [x] macOS Runtime (macOS + SDL2 で GBA のゲームを動かす)
-- [ ] Linux Runtime (Linux + SDL2 で GBA のゲームを動かす)
+- [x] Linux Runtime (Linux + SDL2 で GBA のゲームを動かす)
 - [ ] Windows Runtime (Windows + DirectX で GBA のゲームを動かす)
 - [x] SDK: Replay API for GBA (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
 - [x] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
 - [x] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
 - [ ] パッケージ作成手順の実装 (Windows)
 - [x] パッケージ作成手順の実装 (macOS)
-- [ ] パッケージ作成手順の実装 (Linux)
+- [x] パッケージ作成手順の実装 (Linux)
 - [x] ライセンス精査
 - [x] リポジトリのpublic化
 - [ ] システムテスト: Battle Marine Advance (Windows/macOS/Linux) を Steam で配信
@@ -223,6 +223,11 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 | `macOS App Settings` | macOS 版アプリの公証付与関連の設定群 (※要Apple Developer契約) |
 
 必要な設定が完了後 `make package` を実行すれば `ReleaseZip*` が生成されます。
+
+## Linux Build Environment (Docker)
+
+- Linux のビルドを行う場合、GCCのABI互換性の関係で **可能な限り古い Linux 環境でのビルド** が推奨されます。
+- Steam でのリリースビルド時は、本リポジトリで提供している [./Dockerfile](./Dockerfile) を用いて構築した Docker イメージ上でビルドすることを推奨します。
 
 ## OSS Licenses
 

@@ -18,6 +18,7 @@ src/game_rom.c
 src/dewpoint_define.h
 vdf/action_manifest.vdf
 Makefile.Darwin
+Makefile.Linux
 config.dat
 save.dat
 *.zip
