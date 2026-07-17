@@ -25,11 +25,11 @@
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
 #include "mgbahelper.h"
+#include "pathutil.h"
 #include "steam.hpp"
 
 #include <cstdio>
 #include <cstdint>
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -181,8 +181,9 @@ WindowConfig loadWindowConfig(const std::string& path)
 {
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     if (!input) {
-        std::error_code error;
-        if (std::filesystem::exists(path, error) || error) {
+        bool exists = false;
+        bool isDirectory = false;
+        if (!DewpointPath::inspect(path, &exists, &isDirectory, nullptr) || exists) {
             std::cerr << "Failed to read window configuration: " << path << '\n';
         }
         return defaultWindowConfig();
@@ -250,7 +251,7 @@ void printUsage(const char* executable)
     std::cerr << "Usage: " << executable << " [-s <save.dat>] [-c <config.dat>] [rom.gba]\n";
 }
 
-bool getApplicationInstallDirectory(std::filesystem::path* installDirectory)
+bool getApplicationInstallDirectory(std::string* installDirectory)
 {
     char* basePath = SDL_GetBasePath();
     if (!basePath) {
@@ -263,7 +264,7 @@ bool getApplicationInstallDirectory(std::filesystem::path* installDirectory)
     return true;
 }
 
-bool getSteamInstallDirectory(std::filesystem::path* installDirectory)
+bool getSteamInstallDirectory(std::string* installDirectory)
 {
     auto* apps = SteamApps();
     auto* utils = SteamUtils();
@@ -282,13 +283,13 @@ bool getSteamInstallDirectory(std::filesystem::path* installDirectory)
     return true;
 }
 
-bool redirectLogsToFile(const std::filesystem::path& path)
+bool redirectLogsToFile(const std::string& path)
 {
     std::cout.flush();
     std::cerr.flush();
 
 #ifdef _WIN32
-    FILE* logFile = _wfopen(path.c_str(), L"w");
+    FILE* logFile = std::fopen(path.c_str(), "w");
     const auto redirect = [](FILE* source, FILE* destination) {
         return _dup2(_fileno(source), _fileno(destination)) == 0;
     };
@@ -308,26 +309,25 @@ bool redirectLogsToFile(const std::filesystem::path& path)
 }
 
 bool configureSteamSavePaths(
-    const std::filesystem::path& installDirectory,
+    const std::string& installDirectory,
     bool usesDefaultSramPath,
     bool usesDefaultConfigPath,
     std::string* sramPath,
     std::string* configPath)
 {
-    const std::filesystem::path saveDirectory = installDirectory / "save";
-    std::error_code error;
-    std::filesystem::create_directories(saveDirectory, error);
-    if (error) {
+    const std::string saveDirectory = DewpointPath::join(installDirectory, "save");
+    std::string errorMessage;
+    if (!DewpointPath::createDirectory(saveDirectory, &errorMessage)) {
         std::cerr << "Failed to create default save directory: " << saveDirectory << ": "
-                  << error.message() << '\n';
+                  << errorMessage << '\n';
         return false;
     }
 
     if (usesDefaultSramPath) {
-        *sramPath = (saveDirectory / "save.dat").string();
+        *sramPath = DewpointPath::join(saveDirectory, "save.dat");
     }
     if (usesDefaultConfigPath) {
-        *configPath = (saveDirectory / "config.dat").string();
+        *configPath = DewpointPath::join(saveDirectory, "config.dat");
     }
     return true;
 }
@@ -364,13 +364,13 @@ int main(int argc, char* argv[])
         }
     }
 
-    std::filesystem::path logInstallDirectory;
+    std::string logInstallDirectory;
     bool logsRedirected = false;
     if (SteamAPI_IsSteamRunning()) {
         if (!getApplicationInstallDirectory(&logInstallDirectory)) {
             return 1;
         }
-        const std::filesystem::path logPath = logInstallDirectory / "log.txt";
+        const std::string logPath = DewpointPath::join(logInstallDirectory, "log.txt");
         if (!redirectLogsToFile(logPath)) {
             std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
             return 1;
@@ -384,12 +384,12 @@ int main(int argc, char* argv[])
     });
     const bool steamInitialized = dewpoint.initialize();
     if (steamInitialized) {
-        std::filesystem::path installDirectory;
+        std::string installDirectory;
         if (!getSteamInstallDirectory(&installDirectory)) {
             return 1;
         }
-        if (!logsRedirected || logInstallDirectory.lexically_normal() != installDirectory.lexically_normal()) {
-            const std::filesystem::path logPath = installDirectory / "log.txt";
+        if (!logsRedirected || !DewpointPath::same(logInstallDirectory, installDirectory)) {
+            const std::string logPath = DewpointPath::join(installDirectory, "log.txt");
             if (!redirectLogsToFile(logPath)) {
                 std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
                 return 1;

@@ -1,10 +1,11 @@
 CXX ?= c++
-CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -pedantic
+CXXFLAGS ?= -O2 -Wall -Wextra -pedantic
+MAKEROM_CXXFLAGS := -std=c++11
 
 all: makerom
 
 makerom: makerom.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $<
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(MAKEROM_CXXFLAGS) -o $@ $< $(LDLIBS)
 
 clean:
 	rm -f makerom

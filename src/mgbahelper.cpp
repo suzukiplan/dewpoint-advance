@@ -23,12 +23,12 @@
  * THE SOFTWARE.
  */
 #include "mgbahelper.h"
+#include "pathutil.h"
 
 #include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <new>
@@ -421,9 +421,9 @@ bool mGBAHelper::load(const void* data, size_t size)
                 return false;
             }
         } else {
-            std::error_code error;
-            const bool exists = std::filesystem::exists(sramPath, error);
-            if (error || exists) {
+            bool exists = false;
+            bool isDirectory = false;
+            if (!DewpointPath::inspect(sramPath, &exists, &isDirectory, nullptr) || exists) {
                 delete next;
                 return false;
             }

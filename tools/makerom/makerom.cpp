@@ -1,16 +1,17 @@
 #include <cctype>
+#include <cerrno>
 #include <cstdint>
-#include <filesystem>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <string>
+#include <sys/stat.h>
 
 namespace
 {
 
-namespace fs = std::filesystem;
 constexpr std::uintmax_t NINTENDO_LOGO_OFFSET = 0x004;
 constexpr std::uintmax_t NINTENDO_LOGO_SIZE = 156;
 
@@ -33,9 +34,32 @@ std::string trim(const std::string& value)
     return value.substr(first, last - first);
 }
 
-bool readRomPath(const fs::path& configPath, fs::path& romPath)
+bool isAbsolutePath(const std::string& path)
 {
-    std::ifstream config(configPath);
+    if (path.empty()) {
+        return false;
+    }
+    if (path[0] == '/' || path[0] == '\\') {
+        return true;
+    }
+    return path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':';
+}
+
+std::string resolvePath(const std::string& configPath, const std::string& path)
+{
+    if (isAbsolutePath(path)) {
+        return path;
+    }
+    const std::size_t separator = configPath.find_last_of("/\\");
+    if (separator == std::string::npos) {
+        return path;
+    }
+    return configPath.substr(0, separator + 1) + path;
+}
+
+bool readRomPath(const std::string& configPath, std::string& romPath)
+{
+    std::ifstream config(configPath.c_str());
     if (!config) {
         std::cerr << "makerom: cannot open package configuration: " << configPath << '\n';
         return false;
@@ -70,7 +94,7 @@ bool readRomPath(const fs::path& configPath, fs::path& romPath)
             return false;
         }
 
-        romPath = fs::path(value);
+        romPath = value;
         found = true;
     }
 
@@ -83,86 +107,62 @@ bool readRomPath(const fs::path& configPath, fs::path& romPath)
         return false;
     }
 
-    if (romPath.is_relative()) {
-        romPath = configPath.parent_path() / romPath;
-    }
+    romPath = resolvePath(configPath, romPath);
     return true;
 }
 
-bool shouldSkipGeneration(const fs::path& romPath, const fs::path& sourcePath, bool& skip)
+bool shouldSkipGeneration(const std::string& romPath, const std::string& sourcePath, bool& skip)
 {
     skip = false;
 
-    std::error_code error;
-    const bool romExists = fs::exists(romPath, error);
-    if (error) {
-        std::cerr << "makerom: cannot check ROM file: " << romPath << ": " << error.message() << '\n';
+    struct stat romStatus{};
+    if (stat(romPath.c_str(), &romStatus) != 0) {
+        if (errno == ENOENT) {
+            return true;
+        }
+        std::cerr << "makerom: cannot check ROM file: " << romPath << ": " << std::strerror(errno) << '\n';
         return false;
     }
-    if (!romExists) {
-        return true;
-    }
-    const bool romIsFile = fs::is_regular_file(romPath, error);
-    if (error) {
-        std::cerr << "makerom: cannot check ROM file type: " << romPath << ": " << error.message() << '\n';
-        return false;
-    }
-    if (!romIsFile) {
+    if (!S_ISREG(romStatus.st_mode)) {
         return true;
     }
 
-    const bool sourceExists = fs::exists(sourcePath, error);
-    if (error) {
-        std::cerr << "makerom: cannot check output file: " << sourcePath << ": " << error.message() << '\n';
+    struct stat sourceStatus{};
+    if (stat(sourcePath.c_str(), &sourceStatus) != 0) {
+        if (errno == ENOENT) {
+            return true;
+        }
+        std::cerr << "makerom: cannot check output file: " << sourcePath << ": " << std::strerror(errno) << '\n';
         return false;
     }
-    if (!sourceExists) {
-        return true;
-    }
-    const bool sourceIsFile = fs::is_regular_file(sourcePath, error);
-    if (error) {
-        std::cerr << "makerom: cannot check output file type: " << sourcePath << ": " << error.message() << '\n';
-        return false;
-    }
-    if (!sourceIsFile) {
+    if (!S_ISREG(sourceStatus.st_mode)) {
         return true;
     }
 
-    const fs::file_time_type romTime = fs::last_write_time(romPath, error);
-    if (error) {
-        std::cerr << "makerom: cannot read ROM file modification time: " << romPath << ": " << error.message() << '\n';
-        return false;
-    }
-    const fs::file_time_type sourceTime = fs::last_write_time(sourcePath, error);
-    if (error) {
-        std::cerr << "makerom: cannot read output file modification time: " << sourcePath << ": " << error.message() << '\n';
-        return false;
-    }
-
-    skip = sourceTime > romTime;
+    skip = sourceStatus.st_mtime > romStatus.st_mtime;
     return true;
 }
 
-bool writeSource(const fs::path& romPath, const fs::path& sourcePath)
+bool writeSource(const std::string& romPath, const std::string& sourcePath)
 {
-    std::error_code error;
-    const std::uintmax_t romSize = fs::file_size(romPath, error);
-    if (error) {
-        std::cerr << "makerom: cannot determine ROM file size: " << romPath << ": " << error.message() << '\n';
-        return false;
-    }
-    if (romSize > std::numeric_limits<std::size_t>::max()) {
-        std::cerr << "makerom: ROM file is too large: " << romPath << '\n';
-        return false;
-    }
-
-    std::ifstream rom(romPath, std::ios::binary);
+    std::ifstream rom(romPath.c_str(), std::ios::binary | std::ios::ate);
     if (!rom) {
         std::cerr << "makerom: cannot open ROM file: " << romPath << '\n';
         return false;
     }
+    const std::streamoff end = rom.tellg();
+    if (end < 0 || static_cast<std::uintmax_t>(end) > std::numeric_limits<std::size_t>::max()) {
+        std::cerr << "makerom: cannot determine ROM file size: " << romPath << '\n';
+        return false;
+    }
+    const std::uintmax_t romSize = static_cast<std::uintmax_t>(end);
+    rom.seekg(0);
+    if (!rom) {
+        std::cerr << "makerom: cannot seek ROM file: " << romPath << '\n';
+        return false;
+    }
 
-    std::ofstream source(sourcePath, std::ios::binary | std::ios::trunc);
+    std::ofstream source(sourcePath.c_str(), std::ios::binary | std::ios::trunc);
     if (!source) {
         std::cerr << "makerom: cannot open output file: " << sourcePath << '\n';
         return false;
@@ -188,7 +188,7 @@ bool writeSource(const fs::path& romPath, const fs::path& sourcePath)
             }
             const std::uintmax_t byteOffset = offset + static_cast<std::uintmax_t>(i);
             const bool isNintendoLogo = NINTENDO_LOGO_OFFSET <= byteOffset &&
-                byteOffset < NINTENDO_LOGO_OFFSET + NINTENDO_LOGO_SIZE;
+                                        byteOffset < NINTENDO_LOGO_OFFSET + NINTENDO_LOGO_SIZE;
             const unsigned int value = isNintendoLogo ? 0 : buffer[i];
             source << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << value;
         }
@@ -217,9 +217,9 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const fs::path configPath(argv[1]);
-    const fs::path sourcePath(argv[2]);
-    fs::path romPath;
+    const std::string configPath(argv[1]);
+    const std::string sourcePath(argv[2]);
+    std::string romPath;
     if (!readRomPath(configPath, romPath)) {
         return 1;
     }
