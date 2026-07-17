@@ -38,8 +38,21 @@ CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic -MMD -MP
 CFLAGS ?= -O2 -g
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -MMD -MP
-LDFLAGS += -Wl,-rpath,@executable_path/$(MGBA_BUILD_DIR) -Wl,-rpath,@executable_path
-LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) $(shell $(SDL2_CONFIG) --libs) -framework Foundation -pthread
+LDFLAGS += -Wl,-rpath,@executable_path/$(MGBA_BUILD_DIR) -Wl,-rpath,@executable_path \
+	-Wl,-force_load,/usr/local/lib/libSDL2.a
+LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) \
+	-framework Cocoa \
+	-framework CoreAudio \
+	-framework IOKit \
+	-framework CoreVideo \
+	-framework AudioToolbox \
+	-framework Metal \
+	-framework Carbon \
+	-framework GameController \
+	-framework CoreHaptics \
+	-framework ForceFeedback \
+	-framework Foundation \
+	-pthread
 
 .PHONY: all clean mgba
 
@@ -79,6 +92,9 @@ $(MGBA_LIBRARY): mgba/CMakeLists.txt
 	$(CMAKE) --build $(MGBA_BUILD_DIR) --target mgba --parallel
 
 mgba: $(MGBA_LIBRARY)
+
+debug: all
+	./${ExeName}
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET) $(STEAM_RUNTIME_LIBRARY) vram.bmp

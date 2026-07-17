@@ -41,9 +41,9 @@ flowchart
 
 **重要な補足事項:**
 
-- GameBoy および GameBoy Advance は任天堂の日本またはその他地域における登録商標です。ゲーム名に「for XXX」等をつけたい場合は任天堂からの許諾が必要になります。（ゲーム名 Advance 等の商標権を侵害しない命名を推奨します）
-- GameBoy または GameBoy Advance の BIOS 機能（MP2k等）は使用しないでください。
-- ROM ファイルに GameBoy または GameBoy Advance のヘッダー画像に任天堂が商標権や意匠権を有するデータは自動的にマスク処理されます。
+- GBA、GameBoy および Game Boy Advance は任天堂の日本またはその他地域における登録商標です。ゲーム名に「for XXX」等をつけたい場合は任天堂から許諾を得てください。（商品名には他者/他社の登録商標を無許諾でつけることができないのでご注意ください）
+- Game Boy または Game Boy Advance の BIOS 機能（MP2k等）は使用しないでください。
+- ROM ファイルに Game Boy または Game Boy Advance のヘッダー画像に任天堂が商標権や意匠権を有するデータは自動的にマスク処理されます。
 
 ## WIP status
 
@@ -118,7 +118,7 @@ make
 
 詳細な仕様は [./sdk/dpa.h](./sdk/dpa.h) の実装をチェックしてください。
 
-> devkitPro を用いたゲーム開発には [GBA SDK for port from VGS-Zero](https://github.com/suzukiplan/gbasdk) などが便利です。
+> devkitPro を用いた GBA ソフト開発に便利な [SDK](https://github.com/suzukiplan/gbasdk) も別途公開しています。
 
 ## Steamworks Settings
 

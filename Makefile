@@ -9,6 +9,9 @@ all:
 	./tools/makerom/makerom package.conf ./src/game_rom.c
 	make -f Makefile.`uname` all
 
+debug: all
+	make -f Makefile.`uname` debug
+
 clean:
 	make -f Makefile.`uname` clean
 
