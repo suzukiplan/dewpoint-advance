@@ -58,6 +58,7 @@ flowchart
 - [ ] パッケージ作成手順の実装 (Linux)
 - [x] ライセンス精査
 - [x] リポジトリのpublic化
+- [ ] システムテスト: Battle Marine Advance (Windows/macOS/Linux) を Steam で配信
 
 ## How to Use
 
@@ -208,7 +209,20 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 
 ## How to make the Package
 
-todo
+パッケージを作成するには [./package.conf.model](./package.conf.model) からコピーして作成した package.conf ファイルに配信情報を設定する必要があります。
+
+| Settings | Description |
+|:---------|:------------|
+| `AppName` | ウィンドウタイトルや .app 名、plistなどに設定するアプリ名 |
+| `AppVersion` | アプリバージョン |
+| `ExeName` | 実行ファイル名（Windowsの場合は .exe が付与されます）|
+| `IconFile` | アプリアイコンの格納パスを設定 |
+| `RomFile` | ROMファイル (.gba) の格納パスを設定 |
+| `ReleaseZip*` | 各OSの Steamworks アップロード用の zip ファイル名 |
+| `ButtonDesc*` | 各ボタンの役割を記述（SteamInputの設定にこれが表示されます）|
+| `macOS App Settings` | macOS 版アプリの公証付与関連の設定群 (※要Apple Developer契約) |
+
+必要な設定が完了後 `make package` を実行すれば `ReleaseZip*` が生成されます。
 
 ## OSS Licenses
 
