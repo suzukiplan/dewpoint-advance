@@ -49,11 +49,11 @@ flowchart
 
 - [x] macOS Runtime (macOS + SDL2 で GBA のゲームを動かす)
 - [x] Linux Runtime (Linux + SDL2 で GBA のゲームを動かす)
-- [ ] Windows Runtime (Windows + DirectX で GBA のゲームを動かす)
+- [x] Windows Runtime (Windows + DirectX で GBA のゲームを動かす)
 - [x] SDK: Replay API for GBA (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
 - [x] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
 - [x] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
-- [ ] パッケージ作成手順の実装 (Windows)
+- [x] パッケージ作成手順の実装 (Windows)
 - [x] パッケージ作成手順の実装 (macOS)
 - [x] パッケージ作成手順の実装 (Linux)
 - [x] ライセンス精査
@@ -77,6 +77,24 @@ cp package.conf.model package.conf
 make
 ```
 
+Windows では Visual Studio の **x86 Native Tools Command Prompt** で次を実行します。
+`make.bat` は tools を CL/NMAKE でビルドし、設定ファイルと
+`Makefile.Windows` を生成してから、残りの引数を NMAKE に渡します。
+
+```bat
+make.bat
+```
+
+クリーンビルドと配布用 zip の作成は次のとおりです。
+
+```bat
+make.bat clean all
+make.bat package
+```
+
+Windows ランタイムは Direct3D 9 と DirectSound 8 を使用し、SDL2 には依存しません。
+実行ログは標準出力へは出さず、Steam経由ではインストール先、それ以外ではカレントフォルダの `log.txt` に記録します。
+
 ### Execute
 
 ```bash
@@ -90,8 +108,8 @@ make
 - S: Rボタン
 - Esc: Selectボタン
 - Space: Startボタン
-- ⌘+R: リセット
-- ⌘+Q: 電源OFF
+- macOS: ⌘+R でリセット、⌘+Q で電源OFF
+- Windows: Ctrl+R でリセット、Ctrl+P で一時停止、F11 または Alt+Enter でフルスクリーン切り替え
 
 ## Dewpoint SDK
 

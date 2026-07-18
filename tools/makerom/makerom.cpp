@@ -12,6 +12,32 @@
 namespace
 {
 
+#ifdef _WIN32
+using FileStatus = struct _stat;
+
+int getFileStatus(const char* path, FileStatus* status)
+{
+    return _stat(path, status);
+}
+
+bool isRegularFile(const FileStatus& status)
+{
+    return (status.st_mode & _S_IFMT) == _S_IFREG;
+}
+#else
+using FileStatus = struct stat;
+
+int getFileStatus(const char* path, FileStatus* status)
+{
+    return stat(path, status);
+}
+
+bool isRegularFile(const FileStatus& status)
+{
+    return S_ISREG(status.st_mode);
+}
+#endif
+
 constexpr std::uintmax_t NINTENDO_LOGO_OFFSET = 0x004;
 constexpr std::uintmax_t NINTENDO_LOGO_SIZE = 156;
 
@@ -115,27 +141,27 @@ bool shouldSkipGeneration(const std::string& romPath, const std::string& sourceP
 {
     skip = false;
 
-    struct stat romStatus{};
-    if (stat(romPath.c_str(), &romStatus) != 0) {
+    FileStatus romStatus{};
+    if (getFileStatus(romPath.c_str(), &romStatus) != 0) {
         if (errno == ENOENT) {
             return true;
         }
         std::cerr << "makerom: cannot check ROM file: " << romPath << ": " << std::strerror(errno) << '\n';
         return false;
     }
-    if (!S_ISREG(romStatus.st_mode)) {
+    if (!isRegularFile(romStatus)) {
         return true;
     }
 
-    struct stat sourceStatus{};
-    if (stat(sourcePath.c_str(), &sourceStatus) != 0) {
+    FileStatus sourceStatus{};
+    if (getFileStatus(sourcePath.c_str(), &sourceStatus) != 0) {
         if (errno == ENOENT) {
             return true;
         }
         std::cerr << "makerom: cannot check output file: " << sourcePath << ": " << std::strerror(errno) << '\n';
         return false;
     }
-    if (!S_ISREG(sourceStatus.st_mode)) {
+    if (!isRegularFile(sourceStatus)) {
         return true;
     }
 

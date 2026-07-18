@@ -3,6 +3,10 @@
 #include <string.h>
 #include <stdint.h>
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#endif
+
 void put_usage(void)
 {
     fprintf(stderr, "bin2var /path/to/binary.rom varName [u8|u16|u16l|u16b]\n");

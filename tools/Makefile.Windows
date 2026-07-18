@@ -1,0 +1,22 @@
+CXXFLAGS = /nologo /O2 /EHsc /std:c++17 /permissive- /utf-8 /W3 /D_CRT_SECURE_NO_WARNINGS
+
+BIN2VAR = tools\bin2var\bin2var.exe
+CONFTYPE = tools\conftype\conftype.exe
+MAKEROM = tools\makerom\makerom.exe
+
+all: $(BIN2VAR) $(CONFTYPE) $(MAKEROM)
+
+$(BIN2VAR): tools\bin2var\bin2var.cpp
+	CL $(CXXFLAGS) /Fe$@ /Fotools\bin2var\bin2var.obj $**
+
+$(CONFTYPE): tools\conftype\conftype.cpp
+	CL $(CXXFLAGS) /Fe$@ /Fotools\conftype\conftype.obj $**
+
+$(MAKEROM): tools\makerom\makerom.cpp
+	CL $(CXXFLAGS) /Fe$@ /Fotools\makerom\makerom.obj $**
+
+clean:
+	-DEL /Q $(BIN2VAR) $(CONFTYPE) $(MAKEROM)
+	-DEL /Q tools\bin2var\*.obj tools\conftype\*.obj tools\makerom\*.obj
+
+.PHONY: all clean

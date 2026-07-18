@@ -1,0 +1,77 @@
+EXENAME = ${ExeName}.exe
+RELEASE_ZIP = ${ReleaseZipWindows}
+RELEASE_DIR = release
+BUILD_DIR = build\Windows
+MGBA_BUILD_DIR = $(BUILD_DIR)\mgba
+MGBA_LIBRARY = $(MGBA_BUILD_DIR)\mgba.lib
+MGBA_BUILD_RUNTIME = $(MGBA_BUILD_DIR)\mgba.dll
+MGBA_RUNTIME = mgba.dll
+STEAM_LIBRARY = steamworks\redistributable_bin\steam_api.lib
+STEAM_RUNTIME = steam_api.dll
+
+CXXFLAGS = /nologo /O2 /Zi /EHsc /std:c++17 /permissive- /utf-8 /W3 /MD /D_NDEBUG /D_WINDOWS /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DWIN32_LEAN_AND_MEAN /DENABLE_DIRECTORIES /DENABLE_VFS /I src /I mgba\include /I $(MGBA_BUILD_DIR)\include /I steamworks\public\steam
+CFLAGS = /nologo /O2 /Zi /TC /W3 /MD /D_NDEBUG /D_WINDOWS /D_CRT_SECURE_NO_WARNINGS
+
+OBJECTS = \
+	$(BUILD_DIR)\winmain.obj \
+	$(BUILD_DIR)\dewpoint_runtime.obj \
+	$(BUILD_DIR)\mgbahelper.obj \
+	$(BUILD_DIR)\game_rom.obj
+
+all: $(EXENAME) $(STEAM_RUNTIME) $(MGBA_RUNTIME)
+
+$(BUILD_DIR):
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+
+# LIBMGBA_ONLY keeps the Windows build focused on the core DLL and avoids the SDL/OpenGL frontends.
+mgba-configure: $(BUILD_DIR)
+	IF NOT EXIST $(MGBA_BUILD_DIR)\Makefile CMAKE -S mgba -B $(MGBA_BUILD_DIR) -G "NMake Makefiles" -DLIBMGBA_ONLY=ON -DDISABLE_FRONTENDS=ON -DDISABLE_DEPS=ON -DENABLE_DEBUGGERS=OFF -DENABLE_SCRIPTING=OFF -DUSE_LZMA=OFF -DUSE_EPOXY=OFF -DM_CORE_GBA=ON -DM_CORE_GB=OFF -DBUILD_GL=OFF -DBUILD_GLES2=OFF -DBUILD_GLES3=OFF -DBUILD_SHARED=ON -DBUILD_STATIC=OFF -DBUILD_LTO=OFF -DCMAKE_BUILD_TYPE=Release
+
+mgba: mgba-configure
+	CMAKE --build $(MGBA_BUILD_DIR) --target mgba
+
+$(EXENAME): mgba $(OBJECTS) $(STEAM_LIBRARY)
+	LINK /NOLOGO /OUT:$@ /SUBSYSTEM:WINDOWS /MACHINE:X86 /DEBUG /OPT:REF /OPT:ICF $(OBJECTS) $(MGBA_LIBRARY) $(STEAM_LIBRARY) d3d9.lib dsound.lib dxguid.lib winmm.lib user32.lib shell32.lib ws2_32.lib shlwapi.lib ole32.lib
+
+
+$(BUILD_DIR)\winmain.obj: src\winmain.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\mgbahelper.h src\pathutil.h src\steam.hpp
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CXXFLAGS) /c src\winmain.cpp /Fo$@
+
+$(BUILD_DIR)\dewpoint_runtime.obj: src\dewpoint_runtime.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\mgbahelper.h src\CSteamLeaderboardHelper.hpp
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CXXFLAGS) /c src\dewpoint_runtime.cpp /Fo$@
+
+$(BUILD_DIR)\mgbahelper.obj: src\mgbahelper.cpp src\mgbahelper.h src\pathutil.h
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CXXFLAGS) /c src\mgbahelper.cpp /Fo$@
+
+$(BUILD_DIR)\game_rom.obj: src\game_rom.c
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CFLAGS) /c src\game_rom.c /Fo$@
+
+$(STEAM_RUNTIME): steamworks\redistributable_bin\steam_api.dll
+	COPY /Y $** $@
+
+$(MGBA_RUNTIME): mgba
+	COPY /Y $(MGBA_BUILD_RUNTIME) $@
+
+debug: all
+	START "" $(EXENAME)
+
+clean:
+	-DEL /Q $(OBJECTS) $(EXENAME) $(EXENAME:.exe=.pdb) $(STEAM_RUNTIME) mgba.dll
+	-IF EXIST $(MGBA_BUILD_DIR) RMDIR /S /Q $(MGBA_BUILD_DIR)
+	-IF EXIST $(RELEASE_DIR) RMDIR /S /Q $(RELEASE_DIR)
+
+package: clean all
+	IF EXIST $(RELEASE_DIR) RMDIR /S /Q $(RELEASE_DIR)
+	MKDIR $(RELEASE_DIR)
+	COPY /Y $(EXENAME) $(RELEASE_DIR)\
+	COPY /Y $(STEAM_RUNTIME) $(RELEASE_DIR)\
+	COPY /Y $(MGBA_RUNTIME) $(RELEASE_DIR)\
+	COPY /Y vdf\*.vdf $(RELEASE_DIR)\
+	COPY /Y LICENSE*.txt $(RELEASE_DIR)\
+	POWERSHELL -NoProfile -Command "if (Test-Path -LiteralPath '$(RELEASE_ZIP)') { Remove-Item -LiteralPath '$(RELEASE_ZIP)' -Force }; Compress-Archive -Path '$(RELEASE_DIR)\*' -DestinationPath '$(RELEASE_ZIP)' -Force"
+
+.PHONY: all clean debug mgba mgba-configure package

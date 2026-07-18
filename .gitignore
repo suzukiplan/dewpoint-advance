@@ -19,6 +19,13 @@ src/dewpoint_define.h
 vdf/action_manifest.vdf
 Makefile.Darwin
 Makefile.Linux
+Makefile.Windows
+!tools/Makefile.Windows
 config.dat
 save.dat
+log.txt
+*.dll
+*.exe
+*.obj
+*.pdb
 *.zip
