@@ -20,6 +20,7 @@
 
 #include <Windows.h>
 #include <d3d9.h>
+#include <mmsystem.h>
 #include <dsound.h>
 
 #include <algorithm>

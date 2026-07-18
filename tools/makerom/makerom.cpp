@@ -13,11 +13,11 @@ namespace
 {
 
 #ifdef _WIN32
-using FileStatus = struct _stat;
+using FileStatus = struct ::_stat64;
 
 int getFileStatus(const char* path, FileStatus* status)
 {
-    return _stat(path, status);
+    return ::_stat64(path, status);
 }
 
 bool isRegularFile(const FileStatus& status)

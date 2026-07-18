@@ -5,6 +5,11 @@
 #include <map>
 #include <string>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 namespace
 {
 
@@ -139,5 +144,11 @@ int main(int argc, char* argv[])
     if (!readInput(argv[2], input)) {
         return 1;
     }
+#ifdef _WIN32
+    if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
+        std::cerr << "conftype: cannot set standard output to binary mode\n";
+        return 1;
+    }
+#endif
     return writeExpanded(input, definitions) ? 0 : 1;
 }
