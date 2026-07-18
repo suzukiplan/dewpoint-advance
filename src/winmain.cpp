@@ -70,15 +70,19 @@ std::string currentDirectory()
     return buffer.data();
 }
 
-void selectLogPath(const std::string& directory, bool truncate)
+bool selectLogPath(const std::string& directory, bool truncate)
 {
     std::lock_guard<std::mutex> guard(logMutex);
-    logPath = DewpointPath::join(directory.empty() ? currentDirectory() : directory, "log.txt");
+    const std::string candidate =
+        DewpointPath::join(directory.empty() ? currentDirectory() : directory, "log.txt");
     FILE* file = nullptr;
-    fopen_s(&file, logPath.c_str(), truncate ? "w" : "a");
-    if (file) {
-        fclose(file);
+    fopen_s(&file, candidate.c_str(), truncate ? "w" : "a");
+    if (!file) {
+        return false;
     }
+    fclose(file);
+    logPath = candidate;
+    return true;
 }
 
 void writeLogV(const char* format, va_list arguments)
@@ -295,6 +299,21 @@ bool configureSteamSavePaths(
         *configPath = DewpointPath::join(saveDirectory, "config.dat");
     }
     return true;
+}
+
+void useCurrentDirectoryForDefaultPaths(
+    const std::string& directory,
+    bool usesDefaultSramPath,
+    bool usesDefaultConfigPath,
+    std::string* sramPath,
+    std::string* configPath)
+{
+    if (usesDefaultSramPath) {
+        *sramPath = DewpointPath::join(directory, "save.dat");
+    }
+    if (usesDefaultConfigPath) {
+        *configPath = DewpointPath::join(directory, "config.dat");
+    }
 }
 
 class Direct3DRenderer
@@ -1004,7 +1023,8 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
 {
     // Keep startup diagnostics available when Steam is not running or SteamAPI_Init
     // fails. Once Steam initializes successfully, switch to the app install folder.
-    selectLogPath(currentDirectory(), true);
+    const std::string launchDirectory = currentDirectory();
+    selectLogPath(launchDirectory, true);
     writeLog("Launching %s %s for Windows", APP_NAME, APP_VERSION);
 
     ScopedLogger logger;
@@ -1043,20 +1063,43 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     if (steamInitialized) {
         std::string installDirectory;
         if (!getSteamInstallDirectory(&installDirectory)) {
-            reportError("Failed to locate the Steam installation directory. See log.txt for details.");
-            return 1;
-        }
-        selectLogPath(installDirectory, true);
-        writeLog("Launching %s %s for Windows", APP_NAME, APP_VERSION);
-        if ((usesDefaultSramPath || usesDefaultConfigPath) &&
-            !configureSteamSavePaths(
-                installDirectory,
+            writeLog("Falling back to the current directory for logs and default save files: %s", launchDirectory.c_str());
+            useCurrentDirectoryForDefaultPaths(
+                launchDirectory,
                 usesDefaultSramPath,
                 usesDefaultConfigPath,
                 &sramPath,
-                &configPath)) {
-            reportError("Failed to prepare the Steam save directory. See log.txt for details.");
-            return 1;
+                &configPath);
+        } else if (!selectLogPath(installDirectory, true)) {
+            writeLog(
+                "Failed to prepare the Steam log file; falling back to the current directory for logs and default save files: %s",
+                launchDirectory.c_str());
+            useCurrentDirectoryForDefaultPaths(
+                launchDirectory,
+                usesDefaultSramPath,
+                usesDefaultConfigPath,
+                &sramPath,
+                &configPath);
+        } else {
+            writeLog("Launching %s %s for Windows", APP_NAME, APP_VERSION);
+            if ((usesDefaultSramPath || usesDefaultConfigPath) &&
+                !configureSteamSavePaths(
+                    installDirectory,
+                    usesDefaultSramPath,
+                    usesDefaultConfigPath,
+                    &sramPath,
+                    &configPath)) {
+                selectLogPath(launchDirectory, false);
+                writeLog(
+                    "Failed to prepare the Steam save directory; falling back to the current directory for logs and default save files: %s",
+                    launchDirectory.c_str());
+                useCurrentDirectoryForDefaultPaths(
+                    launchDirectory,
+                    usesDefaultSramPath,
+                    usesDefaultConfigPath,
+                    &sramPath,
+                    &configPath);
+            }
         }
     }
 
