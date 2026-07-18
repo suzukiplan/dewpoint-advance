@@ -19,7 +19,7 @@ flowchart
 
     subgraph HOST["Host Application"]
         RUNTIME["Dewpoint Runtime<br/>《component》"]
-        MGBA["mGBA<br/>Shared Library / DLL<br/>《component》"]
+        MGBA["mGBA<br/>《component》"]
         STEAMWORKS["Steamworks SDK<br/>《external component》"]
 
         RUNTIME -->|"Emulation API"| MGBA
