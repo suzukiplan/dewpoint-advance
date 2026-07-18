@@ -14,6 +14,12 @@
 class DewpointRuntime final : public DewpointBridge
 {
   public:
+    enum class ButtonInputType {
+        PCKeyboard,
+        XboxOrSwitch,
+        PlayStation,
+    };
+
     using Logger = std::function<void(const char*)>;
     using FullscreenSetter = std::function<bool(bool)>;
     using FullscreenGetter = std::function<bool()>;
@@ -28,6 +34,7 @@ class DewpointRuntime final : public DewpointBridge
     void tick();
 
     void setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter);
+    void setButtonInputType(ButtonInputType type);
     bool takeExitRequest(int* exitCode);
 
     uint32_t readRegister(uint32_t index) override;

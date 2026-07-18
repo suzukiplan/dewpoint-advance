@@ -1266,6 +1266,18 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         if (steamInputInitialized) {
             steamInput.updateInput();
         }
+        switch (steamInput.buttonState.type) {
+            case CSteam::ControllerType::XBOX:
+            case CSteam::ControllerType::NintendoSwitch:
+                dewpoint.setButtonInputType(DewpointRuntime::ButtonInputType::XboxOrSwitch);
+                break;
+            case CSteam::ControllerType::PlayStation:
+                dewpoint.setButtonInputType(DewpointRuntime::ButtonInputType::PlayStation);
+                break;
+            case CSteam::ControllerType::NotConnected:
+                dewpoint.setButtonInputType(DewpointRuntime::ButtonInputType::PCKeyboard);
+                break;
+        }
         const bool keyboardEnabled = GetForegroundWindow() == window && !IsIconic(window);
         updateGbaKeyState(&gba.keyState, keyboardEnabled, steamInput.buttonState);
         if (dewpoint.takeExitRequest(&exitCode)) {

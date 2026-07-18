@@ -44,6 +44,8 @@ enum DpaIndex {
     DpaIndexExit,          // [O] プロセス停止 (exit)
     DpaIndexFullScreen,    // [I/O] フルスクリーン (0: Window / not 0: Full Screen)
     DpaAppVersion,         // [O] アプリケーションバージョン文字列を取得
+    DpaButtonA,            // [I] Aボタンのボタンテキスト ('A'|'X'|'X')
+    DpaButtonB,            // [I] Bボタンのボタンテキスト ('B'|'O'|'Z')
 };
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
@@ -183,4 +185,20 @@ int dpa_get_app_version(char* buf)
     }
     _dpa[DpaAppVersion] = (uint32_t)buf;
     return 0;
+}
+
+char dpa_button_a(void)
+{
+    if (!dpa_is_enabled_internal()) {
+        return 'A';
+    }
+    return _dpa[DpaButtonA] & 0x7F;
+}
+
+char dpa_button_b(void)
+{
+    if (!dpa_is_enabled_internal()) {
+        return 'B';
+    }
+    return _dpa[DpaButtonB] & 0x7F;
 }

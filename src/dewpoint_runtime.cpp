@@ -44,7 +44,31 @@ enum DpaIndex : uint32_t {
     DpaIndexExit,
     DpaIndexFullScreen,
     DpaAppVersion,
+    DpaButtonA,
+    DpaButtonB,
 };
+
+struct ButtonCharacters {
+    char a;
+    char b;
+};
+
+constexpr ButtonCharacters getButtonCharacters(DewpointRuntime::ButtonInputType inputType)
+{
+    switch (inputType) {
+        case DewpointRuntime::ButtonInputType::XboxOrSwitch: return {'A', 'B'};
+        case DewpointRuntime::ButtonInputType::PlayStation: return {'X', 'O'};
+        case DewpointRuntime::ButtonInputType::PCKeyboard: return {'X', 'Z'};
+    }
+    return {'X', 'Z'};
+}
+
+static_assert(getButtonCharacters(DewpointRuntime::ButtonInputType::PCKeyboard).a == 'X');
+static_assert(getButtonCharacters(DewpointRuntime::ButtonInputType::PCKeyboard).b == 'Z');
+static_assert(getButtonCharacters(DewpointRuntime::ButtonInputType::XboxOrSwitch).a == 'A');
+static_assert(getButtonCharacters(DewpointRuntime::ButtonInputType::XboxOrSwitch).b == 'B');
+static_assert(getButtonCharacters(DewpointRuntime::ButtonInputType::PlayStation).a == 'X');
+static_assert(getButtonCharacters(DewpointRuntime::ButtonInputType::PlayStation).b == 'O');
 
 struct GuestLeaderboardEntry {
     int32_t boardId;
@@ -89,6 +113,7 @@ struct DewpointRuntime::Impl {
     FullscreenSetter fullscreenSetter;
     FullscreenGetter fullscreenGetter;
     bool steamInitialized;
+    ButtonInputType buttonInputType;
     bool fullscreen;
     bool exitRequested;
     int exitCode;
@@ -107,8 +132,9 @@ struct DewpointRuntime::Impl {
     std::unordered_map<uint32_t, EntryReference> entryReferences;
 
     Impl(mGBAHelper& gba, Logger logger)
-        : gba(gba), logger(std::move(logger)), steamInitialized(false), fullscreen(false), exitRequested(false),
-          exitCode(0), selectedBoardId(-1), sendUgc(false), guestEntryAddress(0), ugcReadIndex(0),
+        : gba(gba), logger(std::move(logger)), steamInitialized(false), buttonInputType(ButtonInputType::PCKeyboard),
+          fullscreen(false), exitRequested(false), exitCode(0),
+          selectedBoardId(-1), sendUgc(false), guestEntryAddress(0), ugcReadIndex(0),
           ugcSize(0), ugcGeneration(0),
           achievementOverflow(false), ugcOverflow(false), boardInitializationAttempted{}
     {
@@ -301,7 +327,7 @@ bool DewpointRuntime::initialize()
         return true;
     }
     if (!SteamAPI_Init()) {
-        impl->log("SteamAPI_Init failed; Dewpoint SDK bridge is disabled.");
+        impl->log("SteamAPI_Init failed; Steam features are disabled.");
         return false;
     }
     impl->steamInitialized = true;
@@ -322,6 +348,11 @@ void DewpointRuntime::setFullscreenCallbacks(FullscreenSetter setter, Fullscreen
     if (impl->fullscreenGetter) {
         impl->fullscreen = impl->fullscreenGetter();
     }
+}
+
+void DewpointRuntime::setButtonInputType(ButtonInputType type)
+{
+    impl->buttonInputType = type;
 }
 
 bool DewpointRuntime::takeExitRequest(int* exitCode)
@@ -351,6 +382,8 @@ uint32_t DewpointRuntime::readRegister(uint32_t index)
         }
         case DpaIndexUgcSize: return static_cast<uint32_t>(impl->ugcSize);
         case DpaIndexUgcRead: return impl->readUgcWord();
+        case DpaButtonA: return static_cast<uint32_t>(getButtonCharacters(impl->buttonInputType).a);
+        case DpaButtonB: return static_cast<uint32_t>(getButtonCharacters(impl->buttonInputType).b);
         default: return 0;
     }
 }

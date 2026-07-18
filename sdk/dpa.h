@@ -132,3 +132,15 @@ int dpa_fullscreen_set(int full_screen);
  * @return 0: Window, not 0: Full Screen
  */
 int dpa_fullscreen_get(void);
+
+/**
+ * @brief Aボタンのキャラクタコード
+ * @return 'X': ゲームパッド未接続, 'A': XBOX or Switch, 'X': PlayStation
+ */
+char dpa_button_a(void);
+
+/**
+ * @brief Bボタンのキャラクタコード
+ * @return 'Z': ゲームパッド未接続, 'B': XBOX or Switch, 'O': PlayStation
+ */
+char dpa_button_b(void);
