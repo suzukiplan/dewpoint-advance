@@ -57,6 +57,32 @@ constexpr DWORD AUDIO_TARGET_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES * 3 / 5
 std::mutex logMutex;
 std::string logPath;
 
+void enablePerMonitorDpiAwareness()
+{
+    // Keep Win32 client coordinates, the D3D back buffer, and Steam overlay UI in
+    // physical pixels. Resolve the API dynamically so the executable still starts
+    // on Windows versions predating per-monitor-v2 DPI awareness.
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (!user32) {
+        return;
+    }
+
+    using SetProcessDpiAwarenessContextFunction = BOOL(WINAPI*)(HANDLE);
+    const auto setDpiAwarenessContext = reinterpret_cast<SetProcessDpiAwarenessContextFunction>(
+        GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+    if (setDpiAwarenessContext &&
+        setDpiAwarenessContext(reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-4)))) {
+        return;
+    }
+
+    using SetProcessDpiAwareFunction = BOOL(WINAPI*)();
+    const auto setDpiAware = reinterpret_cast<SetProcessDpiAwareFunction>(
+        GetProcAddress(user32, "SetProcessDPIAware"));
+    if (setDpiAware) {
+        setDpiAware();
+    }
+}
+
 std::string currentDirectory()
 {
     const DWORD required = GetCurrentDirectoryA(0, nullptr);
@@ -337,6 +363,37 @@ class Direct3DRenderer
 
     static constexpr DWORD VERTEX_FORMAT = D3DFVF_XYZRHW | D3DFVF_TEX1;
 
+    bool updateBackBufferSize()
+    {
+        RECT client{};
+        if (!GetClientRect(window, &client)) {
+            writeLog("GetClientRect failed while sizing the Direct3D back buffer: %lu", GetLastError());
+            return false;
+        }
+        const LONG width = client.right - client.left;
+        const LONG height = client.bottom - client.top;
+        if (width <= 0 || height <= 0) {
+            return false;
+        }
+        parameters.BackBufferWidth = static_cast<UINT>(width);
+        parameters.BackBufferHeight = static_cast<UINT>(height);
+        return true;
+    }
+
+    bool updateViewport()
+    {
+        D3DVIEWPORT9 viewport{};
+        viewport.Width = parameters.BackBufferWidth;
+        viewport.Height = parameters.BackBufferHeight;
+        viewport.MaxZ = 1.0f;
+        const HRESULT result = device->SetViewport(&viewport);
+        if (FAILED(result)) {
+            writeLog("IDirect3DDevice9::SetViewport failed: %08lX", result);
+            return false;
+        }
+        return true;
+    }
+
     bool createTexture()
     {
         const HRESULT result = device->CreateTexture(
@@ -365,12 +422,18 @@ class Direct3DRenderer
             writeLog("IDirect3DDevice9::TestCooperativeLevel failed: %08lX", cooperative);
             return false;
         }
+        if (!updateBackBufferSize()) {
+            return true;
+        }
         const HRESULT result = device->Reset(&parameters);
         if (result == D3DERR_DEVICELOST) {
             return true;
         }
         if (FAILED(result)) {
             writeLog("IDirect3DDevice9::Reset failed: %08lX", result);
+            return false;
+        }
+        if (!updateViewport()) {
             return false;
         }
         resetRequested = false;
@@ -400,6 +463,10 @@ class Direct3DRenderer
         parameters.BackBufferCount = 1;
         parameters.hDeviceWindow = window;
         parameters.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+        if (!updateBackBufferSize()) {
+            writeLog("Failed to determine the initial Direct3D back buffer size");
+            return false;
+        }
 
         HRESULT result = d3d->CreateDevice(
             D3DADAPTER_DEFAULT,
@@ -419,6 +486,9 @@ class Direct3DRenderer
         }
         if (FAILED(result)) {
             writeLog("IDirect3D9::CreateDevice failed: %08lX", result);
+            return false;
+        }
+        if (!updateViewport()) {
             return false;
         }
         if (!createTexture()) {
@@ -1021,6 +1091,8 @@ void printUsage(const char* executable)
 
 int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
 {
+    enablePerMonitorDpiAwareness();
+
     // Keep startup diagnostics available when Steam is not running or SteamAPI_Init
     // fails. Once Steam initializes successfully, switch to the app install folder.
     const std::string launchDirectory = currentDirectory();
