@@ -1,4 +1,6 @@
 EXENAME = ${ExeName}.exe
+ICON_FILE = ${IconFile}
+SETICON = tools\seticon\seticon.exe
 RELEASE_ZIP = ${ReleaseZipWindows}
 RELEASE_DIR = release
 BUILD_DIR = build\Windows
@@ -28,8 +30,9 @@ mgba-configure: $(BUILD_DIR)
 mgba: mgba-configure
 	CMAKE --build $(MGBA_BUILD_DIR) --target mgba
 
-$(EXENAME): mgba $(OBJECTS) $(STEAM_LIBRARY)
+$(EXENAME): mgba $(OBJECTS) $(STEAM_LIBRARY) "$(ICON_FILE)" $(SETICON)
 	LINK /NOLOGO /OUT:$@ /SUBSYSTEM:WINDOWS /MACHINE:X86 /DEBUG /OPT:REF /OPT:ICF $(OBJECTS) $(MGBA_LIBRARY) $(STEAM_LIBRARY) d3d9.lib dsound.lib dxguid.lib winmm.lib user32.lib gdi32.lib shell32.lib ws2_32.lib shlwapi.lib ole32.lib
+	$(SETICON) "$(ICON_FILE)" "$@"
 
 
 $(BUILD_DIR)\winmain.obj: src\winmain.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\mgbahelper.h src\pathutil.h src\steam.hpp
@@ -62,10 +65,10 @@ clean:
 package: clean all
 	IF EXIST $(RELEASE_DIR) RMDIR /S /Q $(RELEASE_DIR)
 	MKDIR $(RELEASE_DIR)
-	COPY /Y $(EXENAME) $(RELEASE_DIR)\
-	COPY /Y $(STEAM_RUNTIME) $(RELEASE_DIR)\
-	COPY /Y vdf\*.vdf $(RELEASE_DIR)\
-	COPY /Y LICENSE*.txt $(RELEASE_DIR)\
+	COPY /Y $(EXENAME) $(RELEASE_DIR)
+	COPY /Y $(STEAM_RUNTIME) $(RELEASE_DIR)
+	COPY /Y vdf\*.vdf $(RELEASE_DIR)
+	COPY /Y LICENSE*.txt $(RELEASE_DIR)
 	POWERSHELL -NoProfile -Command "if (Test-Path -LiteralPath '$(RELEASE_ZIP)') { Remove-Item -LiteralPath '$(RELEASE_ZIP)' -Force }; Compress-Archive -Path '$(RELEASE_DIR)\*' -DestinationPath '$(RELEASE_ZIP)' -Force"
 
 .PHONY: all clean debug mgba mgba-configure package
