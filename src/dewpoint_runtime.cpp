@@ -47,6 +47,7 @@ enum DpaIndex : uint32_t {
     DpaButtonA,
     DpaButtonB,
 };
+static_assert(DpaButtonB + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
 
 struct ButtonCharacters {
     char a;

@@ -58,8 +58,7 @@ constexpr unsigned OUTPUT_SAMPLE_RATE = 44100;
 constexpr size_t AUDIO_BUFFER_FRAMES = 2048;
 constexpr size_t AUDIO_CHANNELS = 2;
 constexpr uint32_t DEWPOINT_BASE = 0x04801000;
-constexpr uint32_t DEWPOINT_REGISTER_COUNT = 16;
-constexpr uint32_t DEWPOINT_END = DEWPOINT_BASE + DEWPOINT_REGISTER_COUNT * sizeof(uint32_t);
+constexpr uint32_t DEWPOINT_END = DEWPOINT_BASE + DewpointBridge::REGISTER_COUNT * sizeof(uint32_t);
 constexpr uint32_t DEWPOINT_COMPONENT_ID = 0x44505754; // "DPWT"
 
 class AnalogEffect
