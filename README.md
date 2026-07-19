@@ -240,14 +240,35 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 | `RomFile` | ROMファイル (.gba) の格納パスを設定 |
 | `ReleaseZip*` | 各OSの Steamworks アップロード用の zip ファイル名 |
 | `ButtonDesc*` | 各ボタンの役割を記述（SteamInputの設定にこれが表示されます）|
-| `macOS App Settings` | macOS 版アプリの公証付与関連の設定群 (※要Apple Developer契約) |
+| `macOS App Settings` | macOS 版アプリの公証付与関連の設定群 |
 
 必要な設定が完了後 `make package` を実行すれば `ReleaseZip*` が生成されます。
 
-## Linux Build Environment (Docker)
+### macOS Build Environment
+
+- macOS版は公証を付与した `.app` 形式のアプリケーションを生成します。
+- 公証の付与には Apple Developer Program の契約が必要です。
+
+### Linux Build Environment (Docker)
 
 - Linux のビルドを行う場合、GCCのABI互換性の関係で **可能な限り古い Linux 環境でのビルド** が推奨されます。
 - Steam でのリリースビルド時は、本リポジトリで提供している [./Dockerfile](./Dockerfile) を用いて構築した Docker イメージ上でビルドすることを推奨します。
+
+### Recommended Repository Structure
+
+例えば、以下のように dewpoint-advance をサブモジュールと追加しつつ package.conf や GBA プロジェクトを構成管理する構成を推奨します。
+
+```
++- [dir] You Game App (repo)
+    |
+    +-- [dir] dewpoint-advance (submodule)
+    |
+    +-- [dir] Your GBA devkitPro Project
+    |
+    +-- [file] package.conf
+    |
+    +-- [file] build.sh / build.bat (package.conf を dewpoint-advance へコピーして `cd dewpo`)
+```
 
 ## OSS Licenses
 
