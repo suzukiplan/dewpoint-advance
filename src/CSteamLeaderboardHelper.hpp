@@ -57,6 +57,15 @@
 
 class CSteamLeaderboardHelper
 {
+  public:
+    enum class SendScoreResult {
+        Success,
+        Unchanged,
+        Failed,
+    };
+
+    using SendScoreCallback = std::function<void(SendScoreResult)>;
+
   private:
     static constexpr size_t kDefaultUGCSizeLimit = 1024u * 1024u;
 
@@ -77,6 +86,7 @@ class CSteamLeaderboardHelper
     enum class SendScoreState {
         Idle,
         UploadingScore,
+        VerifyingScore,
         WritingUGC,
         SharingUGC,
         AttachingUGC,
@@ -93,6 +103,7 @@ class CSteamLeaderboardHelper
     CCallResult<CSteamLeaderboardHelper, LeaderboardScoresDownloaded_t> callResultDownloadLeaderboardScoreTop;
     CCallResult<CSteamLeaderboardHelper, LeaderboardScoresDownloaded_t> callResultDownloadLeaderboardScoreMine;
     CCallResult<CSteamLeaderboardHelper, LeaderboardScoreUploaded_t> callResultUploadLeaderboardScore;
+    CCallResult<CSteamLeaderboardHelper, LeaderboardScoresDownloaded_t> callResultVerifyLeaderboardScore;
     CCallResult<CSteamLeaderboardHelper, RemoteStorageFileWriteAsyncComplete_t> callResultWriteUGC;
     CCallResult<CSteamLeaderboardHelper, RemoteStorageFileShareResult_t> callResultShareUGC;
     CCallResult<CSteamLeaderboardHelper, LeaderboardUGCSet_t> callResultAttachUGC;
@@ -108,9 +119,14 @@ class CSteamLeaderboardHelper
     size_t ugcSizeLimit;
     SteamLeaderboard_t leaderboard;
     SendScoreState sendScoreState;
+    int scoreBeingUploaded;
     bool sendScoreDeferred;
     int deferredScore;
     std::vector<uint8_t> deferredUGCData;
+    bool deferredAttachUGCWhenUnchanged;
+    SendScoreCallback deferredSendScoreCallback;
+    bool attachUGCWhenUnchanged;
+    SendScoreCallback sendScoreCallback;
     std::function<void(const char*)> logger;
     std::function<void(const uint8_t* data, size_t size)> ugcDownloadCallback;
     bool reloadDeferred;
@@ -167,11 +183,20 @@ class CSteamLeaderboardHelper
         enforceUserNameCacheLimit();
     }
 
-    void finishSendScore(bool shouldReload)
+    void finishSendScore(SendScoreResult result, bool shouldReload)
     {
         sendScoreState = SendScoreState::Idle;
         ugcUploadData.clear();
+        if (result == SendScoreResult::Failed && !ugcUploadFilename.empty()) {
+            auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
+            if (storage && storage->FileExists(ugcUploadFilename.c_str()) &&
+                !storage->FileDelete(ugcUploadFilename.c_str())) {
+                putlog("Failed to discard incomplete UGC file: %s", ugcUploadFilename.c_str());
+            }
+        }
         ugcUploadFilename.clear();
+        attachUGCWhenUnchanged = false;
+        SendScoreCallback callback = std::move(sendScoreCallback);
         if (shouldReload) {
             if (ugcDownloadCallback || downloadTopState == DownloadState::InProgress || downloadMineState == DownloadState::InProgress) {
                 putlog("Reload deferred: another download is still in progress (%s).", boardName.c_str());
@@ -180,6 +205,60 @@ class CSteamLeaderboardHelper
                 this->reload();
             }
         }
+        if (callback) {
+            callback(result);
+        }
+    }
+
+    bool startUGCUpload(void)
+    {
+        if (ugcUploadFilename.empty()) {
+            long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
+            if (timestamp <= lastUGCSendScoreTimestamp) {
+                timestamp = lastUGCSendScoreTimestamp + 1;
+            }
+            lastUGCSendScoreTimestamp = timestamp;
+            ugcUploadFilename = ugcName + "_" + std::to_string(timestamp) + ".dat";
+        }
+        auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
+        if (!storage) {
+            putlog("Failed to upload UGC: SteamRemoteStorage is not available (%s).", boardName.c_str());
+            finishSendScore(SendScoreResult::Failed, false);
+            return false;
+        }
+        putlog("Writing UGC to Steam Cloud: %s", ugcUploadFilename.c_str());
+        sendScoreState = SendScoreState::WritingUGC;
+        auto hdl = storage->FileWriteAsync(ugcUploadFilename.c_str(), ugcUploadData.data(), ugcUploadData.size());
+        if (k_uAPICallInvalid == hdl) {
+            putlog("Failed to write UGC to Steam Cloud: invalid call handle (%s).", boardName.c_str());
+            finishSendScore(SendScoreResult::Failed, false);
+            return false;
+        }
+        this->callResultWriteUGC.Set(hdl, this, &CSteamLeaderboardHelper::onWriteUGC);
+        return true;
+    }
+
+    bool verifyScoreBeforeUnchangedUGC(void)
+    {
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
+        if (!stats) {
+            putlog("Failed to verify unchanged score: SteamUserStats is not available (%s).", boardName.c_str());
+            finishSendScore(SendScoreResult::Failed, false);
+            return false;
+        }
+        auto hdl = stats->DownloadLeaderboardEntries(
+            leaderboard,
+            k_ELeaderboardDataRequestGlobalAroundUser,
+            0,
+            0);
+        if (k_uAPICallInvalid == hdl) {
+            putlog("Failed to verify unchanged score: invalid call handle (%s).", boardName.c_str());
+            finishSendScore(SendScoreResult::Failed, false);
+            return false;
+        }
+        sendScoreState = SendScoreState::VerifyingScore;
+        callResultVerifyLeaderboardScore.Set(hdl, this, &CSteamLeaderboardHelper::onVerifyLeaderboardScore);
+        return true;
     }
 
     void maybeReloadDeferred(void)
@@ -240,8 +319,11 @@ class CSteamLeaderboardHelper
           ugcSizeLimit(ugcSizeLimit),
           leaderboard(0),
           sendScoreState(SendScoreState::Idle),
+          scoreBeingUploaded(0),
           sendScoreDeferred(false),
           deferredScore(0),
+          deferredAttachUGCWhenUnchanged(false),
+          attachUGCWhenUnchanged(false),
           reloadDeferred(false),
           topRanksDownloaded(false),
           myRankDownloaded(false),
@@ -267,6 +349,7 @@ class CSteamLeaderboardHelper
         callResultDownloadLeaderboardScoreTop.Cancel();
         callResultDownloadLeaderboardScoreMine.Cancel();
         callResultUploadLeaderboardScore.Cancel();
+        callResultVerifyLeaderboardScore.Cancel();
         callResultWriteUGC.Cancel();
         callResultShareUGC.Cancel();
         callResultAttachUGC.Cancel();
@@ -402,6 +485,36 @@ class CSteamLeaderboardHelper
             return false;
         }
         return downloadTopState == DownloadState::DoneError || downloadMineState == DownloadState::DoneError;
+    }
+
+    /**
+     * @brief Compares scores using the leaderboard's configured sort order
+     * @param known Receives false when the sort order cannot be determined
+     * @return true when candidate is better than existing
+     */
+    bool isScoreBetter(int candidate, int existing, bool* known) const
+    {
+        if (known) {
+            *known = false;
+        }
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
+        if (!stats || initState != InitState::DoneOk || 0 == leaderboard) {
+            return false;
+        }
+        const ELeaderboardSortMethod sortMethod = stats->GetLeaderboardSortMethod(leaderboard);
+        if (sortMethod == k_ELeaderboardSortMethodAscending) {
+            if (known) {
+                *known = true;
+            }
+            return candidate < existing;
+        }
+        if (sortMethod == k_ELeaderboardSortMethodDescending) {
+            if (known) {
+                *known = true;
+            }
+            return candidate > existing;
+        }
+        return false;
     }
 
     /**
@@ -578,7 +691,7 @@ class CSteamLeaderboardHelper
      */
     bool sendScore(int score)
     {
-        return sendScore(score, nullptr, 0);
+        return sendScore(score, nullptr, 0, false, {});
     }
 
     /**
@@ -590,13 +703,37 @@ class CSteamLeaderboardHelper
      */
     bool sendScore(int score, const uint8_t* data, size_t size)
     {
+        return sendScore(score, data, size, false, {});
+    }
+
+    /**
+     * @brief Uploads a score and reports the final asynchronous result
+     * @param attachUGCWhenUnchanged Continue attaching UGC when KeepBest reports an unchanged score
+     * @param callback Called exactly once with the final result, including immediate rejection
+     * @return true: request accepted, false: rejected before starting
+     */
+    bool sendScore(
+        int score,
+        const uint8_t* data,
+        size_t size,
+        bool attachUGCWhenUnchanged,
+        SendScoreCallback callback)
+    {
+        const auto reject = [&callback]() {
+            if (callback) {
+                SendScoreCallback rejectedCallback = std::move(callback);
+                rejectedCallback(SendScoreResult::Failed);
+            }
+        };
         if (data && size > ugcSizeLimit) {
             putlog("Upload failed: UGC size limit exceeded (size=%zu, limit=%zu) (%s).", size, ugcSizeLimit, boardName.c_str());
+            reject();
             return false;
         }
         if (initState == InitState::InProgress) {
             if (sendScoreDeferred) {
                 putlog("Upload failed: another sendScore request is waiting for initialization (%s).", boardName.c_str());
+                reject();
                 return false;
             }
             deferredScore = score;
@@ -605,31 +742,33 @@ class CSteamLeaderboardHelper
             } else {
                 deferredUGCData.clear();
             }
+            deferredAttachUGCWhenUnchanged = attachUGCWhenUnchanged;
+            deferredSendScoreCallback = std::move(callback);
             sendScoreDeferred = true;
             putlog("Upload deferred until leaderboard initialization completes (%s).", boardName.c_str());
             return true;
         }
         if (initState != InitState::DoneOk || 0 == leaderboard) {
             putlog("Upload failed: leaderboard is not initialized (%s).", boardName.c_str());
+            reject();
             return false;
         }
         if (isSendScoreBusy()) {
             putlog("Upload failed: another sendScore request is still in progress (%s).", boardName.c_str());
+            reject();
             return false;
         }
         auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Upload failed: SteamUserStats is not available (%s).", boardName.c_str());
+            reject();
             return false;
         }
         if (data && 0 < size) {
             ugcUploadData.assign(data, data + size);
-            const long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
-            if (timestamp == lastUGCSendScoreTimestamp) {
-                putlog("Upload failed: duplicated UGC timestamp (%lld) (%s).", timestamp, boardName.c_str());
-                ugcUploadData.clear();
-                ugcUploadFilename.clear();
-                return false;
+            long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
+            if (timestamp <= lastUGCSendScoreTimestamp) {
+                timestamp = lastUGCSendScoreTimestamp + 1;
             }
             lastUGCSendScoreTimestamp = timestamp;
             ugcUploadFilename = ugcName + "_" + std::to_string(timestamp) + ".dat";
@@ -637,11 +776,14 @@ class CSteamLeaderboardHelper
             ugcUploadData.clear();
             ugcUploadFilename.clear();
         }
+        this->attachUGCWhenUnchanged = attachUGCWhenUnchanged;
+        sendScoreCallback = std::move(callback);
+        scoreBeingUploaded = score;
         sendScoreState = SendScoreState::UploadingScore;
         auto hdl = stats->UploadLeaderboardScore(this->leaderboard, k_ELeaderboardUploadScoreMethodKeepBest, score, nullptr, 0);
         if (k_uAPICallInvalid == hdl) {
             putlog("Upload failed: UploadLeaderboardScore returned invalid call handle (%s).", boardName.c_str());
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return false;
         }
         this->callResultUploadLeaderboardScore.Set(hdl, this, &CSteamLeaderboardHelper::onUploadScore);
@@ -658,6 +800,11 @@ class CSteamLeaderboardHelper
                 putlog("Deferred upload canceled because leaderboard initialization failed (%s).", boardName.c_str());
                 sendScoreDeferred = false;
                 deferredUGCData.clear();
+                deferredAttachUGCWhenUnchanged = false;
+                SendScoreCallback callback = std::move(deferredSendScoreCallback);
+                if (callback) {
+                    callback(SendScoreResult::Failed);
+                }
             }
             return;
         }
@@ -670,8 +817,16 @@ class CSteamLeaderboardHelper
         if (sendScoreDeferred) {
             const int score = deferredScore;
             std::vector<uint8_t> data = std::move(deferredUGCData);
+            const bool attachWhenUnchanged = deferredAttachUGCWhenUnchanged;
+            SendScoreCallback callback = std::move(deferredSendScoreCallback);
             sendScoreDeferred = false;
-            if (!this->sendScore(score, data.empty() ? nullptr : data.data(), data.size())) {
+            deferredAttachUGCWhenUnchanged = false;
+            if (!this->sendScore(
+                    score,
+                    data.empty() ? nullptr : data.data(),
+                    data.size(),
+                    attachWhenUnchanged,
+                    std::move(callback))) {
                 putlog("Deferred upload failed after leaderboard initialization (%s).", boardName.c_str());
             }
         }
@@ -824,52 +979,64 @@ class CSteamLeaderboardHelper
     {
         if (failed || !callback || !callback->m_bSuccess) {
             putlog("Failed to upload score to leaderboard %s.", boardName.c_str());
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
         if (!callback->m_bScoreChanged) {
             putlog("High score unchanged for leaderboard %s.", boardName.c_str());
-            finishSendScore(false);
+            if (!ugcUploadData.empty() && attachUGCWhenUnchanged) {
+                verifyScoreBeforeUnchangedUGC();
+            } else {
+                finishSendScore(SendScoreResult::Unchanged, false);
+            }
             return;
         }
         if (ugcUploadData.empty()) {
             putlog("Score uploaded to leaderboard %s (no UGC attached).", boardName.c_str());
-            finishSendScore(true);
+            finishSendScore(SendScoreResult::Success, true);
             return;
         }
-        if (ugcUploadFilename.empty()) {
-            const long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
-            lastUGCSendScoreTimestamp = timestamp;
-            ugcUploadFilename = ugcName + "_" + std::to_string(timestamp) + ".dat";
-        }
-        auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
-        if (!storage) {
-            putlog("Failed to upload UGC: SteamRemoteStorage is not available (%s).", boardName.c_str());
-            finishSendScore(false);
+        startUGCUpload();
+    }
+
+    void onVerifyLeaderboardScore(LeaderboardScoresDownloaded_t* callback, bool failed)
+    {
+        if (failed || !callback || callback->m_cEntryCount != 1) {
+            putlog("Failed to verify unchanged score for leaderboard %s.", boardName.c_str());
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
-        putlog("Writing UGC to Steam Cloud: %s", ugcUploadFilename.c_str());
-        sendScoreState = SendScoreState::WritingUGC;
-        auto hdl = storage->FileWriteAsync(ugcUploadFilename.c_str(), ugcUploadData.data(), ugcUploadData.size());
-        if (k_uAPICallInvalid == hdl) {
-            putlog("Failed to write UGC to Steam Cloud: invalid call handle (%s).", boardName.c_str());
-            finishSendScore(false);
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
+        LeaderboardEntry_t entry{};
+        if (!stats || !stats->GetDownloadedLeaderboardEntry(
+                          callback->m_hSteamLeaderboardEntries,
+                          0,
+                          &entry,
+                          nullptr,
+                          0)) {
+            putlog("Failed to read unchanged score for leaderboard %s.", boardName.c_str());
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
-        this->callResultWriteUGC.Set(hdl, this, &CSteamLeaderboardHelper::onWriteUGC);
+        if (entry.m_nScore != scoreBeingUploaded) {
+            putlog("UGC attachment skipped because Steam now has a different score (%s).", boardName.c_str());
+            finishSendScore(SendScoreResult::Unchanged, false);
+            return;
+        }
+        startUGCUpload();
     }
 
     void onWriteUGC(RemoteStorageFileWriteAsyncComplete_t* callback, bool failed)
     {
         if (failed || !callback || callback->m_eResult != k_EResultOK) {
             putlog("Failed to write UGC to Steam Cloud (result=%d).", callback ? callback->m_eResult : -1);
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
         auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
         if (!storage) {
             putlog("Failed to share UGC: SteamRemoteStorage is not available (%s).", boardName.c_str());
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
         putlog("Sharing UGC in Steam Cloud: %s", ugcUploadFilename.c_str());
@@ -877,7 +1044,7 @@ class CSteamLeaderboardHelper
         auto hdl = storage->FileShare(ugcUploadFilename.c_str());
         if (k_uAPICallInvalid == hdl) {
             putlog("Failed to share UGC in Steam Cloud: invalid call handle (%s).", boardName.c_str());
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
         this->callResultShareUGC.Set(hdl, this, &CSteamLeaderboardHelper::onShareUGC);
@@ -887,13 +1054,13 @@ class CSteamLeaderboardHelper
     {
         if (failed || !callback || callback->m_eResult != k_EResultOK) {
             putlog("Failed to share UGC in Steam Cloud (result=%d).", callback ? callback->m_eResult : -1);
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
         auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Failed to attach UGC: SteamUserStats is not available (%s).", boardName.c_str());
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
         putlog("Attaching UGC to leaderboard %s.", boardName.c_str());
@@ -901,7 +1068,7 @@ class CSteamLeaderboardHelper
         auto hdl = stats->AttachLeaderboardUGC(leaderboard, callback->m_hFile);
         if (k_uAPICallInvalid == hdl) {
             putlog("Failed to attach UGC to the leaderboard: invalid call handle (%s).", boardName.c_str());
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
         this->callResultAttachUGC.Set(hdl, this, &CSteamLeaderboardHelper::onAttachUGC);
@@ -911,12 +1078,12 @@ class CSteamLeaderboardHelper
     {
         if (failed || !callback || callback->m_eResult != k_EResultOK) {
             putlog("Failed to attach UGC to the leaderboard (result=%d).", callback ? callback->m_eResult : -1);
-            finishSendScore(false);
+            finishSendScore(SendScoreResult::Failed, false);
             return;
         }
         putlog("Successfully attached UGC to leaderboard %s.", boardName.c_str());
         cleanupOldUGCFiles();
-        finishSendScore(true);
+        finishSendScore(SendScoreResult::Success, true);
     }
 
     void cleanupOldUGCFiles(void)

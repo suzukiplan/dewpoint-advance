@@ -57,6 +57,8 @@ void dpa_achievement_unlock(const char* id);
  * @param board_id スコアボードID (0~15)
  * @param score スコア
  * @param ugc 0: UGCデータを送信しない, not 0: 共通UGCバッファのデータを送信
+ * @remark 送信データはボードごとにローカル保存され、未完了の場合は次回起動時に1回再送される
+ * @remark 同一ボードの保存データは上書きされるため、ローカルハイスコア更新時に呼び出すこと
  */
 void dpa_leaderboard_send(int board_id, int32_t score, int ugc);
 

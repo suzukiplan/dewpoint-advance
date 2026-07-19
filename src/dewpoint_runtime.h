@@ -10,6 +10,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 
 class DewpointRuntime final : public DewpointBridge
 {
@@ -32,6 +33,7 @@ class DewpointRuntime final : public DewpointBridge
 
     bool initialize();
     void tick();
+    bool setHighScoreStorageDirectory(const std::string& directory);
 
     void setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter);
     void setButtonInputType(ButtonInputType type);

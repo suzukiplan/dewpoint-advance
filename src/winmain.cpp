@@ -19,12 +19,14 @@
 #include "steam.hpp"
 
 #include <Windows.h>
+#include <ShlObj.h>
 #include <d3d9.h>
 #include <mmsystem.h>
 #include <dsound.h>
 
 #include <algorithm>
 #include <cstdarg>
+#include <cctype>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -94,6 +96,43 @@ std::string currentDirectory()
         return ".";
     }
     return buffer.data();
+}
+
+bool getHighScoreStorageDirectory(std::string* directory)
+{
+    if (!directory) {
+        return false;
+    }
+    char localAppData[MAX_PATH]{};
+    if (SHGetFolderPathA(
+            nullptr,
+            CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE,
+            nullptr,
+            SHGFP_TYPE_CURRENT,
+            localAppData) != S_OK) {
+        return false;
+    }
+
+    std::string safeAppName = APP_NAME;
+    uint32_t appNameHash = 2166136261u;
+    for (const unsigned char c : safeAppName) {
+        appNameHash = (appNameHash ^ c) * 16777619u;
+    }
+    std::replace_if(safeAppName.begin(), safeAppName.end(), [](unsigned char c) {
+        return !std::isalnum(c) && c != ' ' && c != '-' && c != '_' && c != '.';
+    }, '_');
+    if (safeAppName.empty() || safeAppName == "." || safeAppName == "..") {
+        safeAppName = "DewpointGame";
+    }
+    char hashSuffix[16]{};
+    std::snprintf(hashSuffix, sizeof(hashSuffix), "-%08X", appNameHash);
+    safeAppName += hashSuffix;
+
+    *directory = DewpointPath::join(
+        DewpointPath::join(DewpointPath::join(localAppData, "SUZUKI PLAN"), safeAppName),
+        "leaderboard-cache");
+    const int result = SHCreateDirectoryExA(nullptr, directory->c_str(), nullptr);
+    return result == ERROR_SUCCESS || result == ERROR_ALREADY_EXISTS || result == ERROR_FILE_EXISTS;
 }
 
 bool selectLogPath(const std::string& directory, bool truncate)
@@ -1131,6 +1170,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     DewpointRuntime dewpoint(gba, [](const char* message) {
         writeLog("[Steam] %s", message);
     });
+    std::string highScoreDirectory;
+    if (!getHighScoreStorageDirectory(&highScoreDirectory) ||
+        !dewpoint.setHighScoreStorageDirectory(highScoreDirectory)) {
+        writeLog("Failed to prepare the pending high score directory: %s", highScoreDirectory.c_str());
+    }
     const bool steamInitialized = dewpoint.initialize();
     if (steamInitialized) {
         std::string installDirectory;

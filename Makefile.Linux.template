@@ -19,7 +19,7 @@ MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.so
 MGBA_RUNTIME_NAME = $(notdir $(shell readlink $(MGBA_LIBRARY) 2>/dev/null))
 STEAM_LIBRARY := steamworks/redistributable_bin/linux64/libsteam_api.so
 STEAM_RUNTIME_LIBRARY := libsteam_api.so
-CPP_SOURCES := src/dewpoint_runtime.cpp src/mgbahelper.cpp src/sdlmain.cpp
+CPP_SOURCES := src/dewpoint_runtime.cpp src/highscore_store.cpp src/mgbahelper.cpp src/sdlmain.cpp
 C_SOURCES := src/game_rom.c
 OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(CPP_SOURCES)) \
 	$(patsubst src/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))

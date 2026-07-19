@@ -4,16 +4,22 @@ AutoGenerates =\
 	./Makefile.Darwin\
 	./Makefile.Linux
 
+.PHONY: all test debug clean package
+
 all:
 	cd tools && make
 	make ${AutoGenerates}
 	./tools/makerom/makerom package.conf ./src/game_rom.c
 	make -f Makefile.`uname` all
 
+test:
+	$(MAKE) -C tests test
+
 debug: all
 	make -f Makefile.`uname` debug
 
 clean:
+	$(MAKE) -C tests clean
 	make -f Makefile.`uname` clean
 
 package: all

@@ -378,10 +378,29 @@ int main(int argc, char* argv[])
         logsRedirected = true;
     }
 
+    ScopedSdl sdl;
+    if (!sdl) {
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
+        return 1;
+    }
+
     mGBAHelper gba;
     DewpointRuntime dewpoint(gba, [](const char* message) {
         std::cerr << "[Steam] " << message << '\n';
     });
+    char* preferencePath = SDL_GetPrefPath("SUZUKI PLAN", APP_NAME);
+    if (!preferencePath) {
+        std::cerr << "Failed to get the local application data directory: " << SDL_GetError() << '\n';
+    } else {
+        const std::string highScoreDirectory = DewpointPath::join(preferencePath, "leaderboard-cache");
+        SDL_free(preferencePath);
+        std::string errorMessage;
+        if (!DewpointPath::createDirectory(highScoreDirectory, &errorMessage) ||
+            !dewpoint.setHighScoreStorageDirectory(highScoreDirectory)) {
+            std::cerr << "Failed to prepare the pending high score directory: "
+                      << highScoreDirectory << ": " << errorMessage << '\n';
+        }
+    }
     const bool steamInitialized = dewpoint.initialize();
     if (steamInitialized) {
         std::string installDirectory;
@@ -433,12 +452,6 @@ int main(int argc, char* argv[])
         std::cerr << "[SteamInput] " << message << '\n';
     });
     const bool steamInputInitialized = steamInitialized && steamInput.initializeInput();
-
-    ScopedSdl sdl;
-    if (!sdl) {
-        std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
-        return 1;
-    }
 
     const WindowConfig config = loadWindowConfig(configPath);
     const bool windowModeEnabled = CSteam::isEnabledWindowModo();

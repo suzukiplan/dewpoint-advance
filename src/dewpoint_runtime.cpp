@@ -8,10 +8,12 @@
 
 #include "CSteamLeaderboardHelper.hpp"
 #include "dewpoint_define.h"
+#include "highscore_store.h"
 
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -22,9 +24,9 @@
 namespace
 {
 constexpr uint32_t DPMID = ('D' << 24) | ('E' << 16) | ('W' << 8) | 'P';
-constexpr int BOARD_COUNT = 16;
+constexpr int BOARD_COUNT = DewpointHighScore::BOARD_COUNT;
 constexpr size_t MAX_ACHIEVEMENT_ID = 127;
-constexpr size_t MAX_UGC_SIZE = 1024 * 1024;
+constexpr size_t MAX_UGC_SIZE = DewpointHighScore::MAX_UGC_SIZE;
 
 enum DpaIndex : uint32_t {
     DpaIndexId = 0,
@@ -109,8 +111,15 @@ struct DewpointRuntime::Impl {
         int index;
     };
 
+    struct UploadSlot {
+        std::optional<DewpointHighScore::Record> record;
+        uint64_t attemptedRequestId = 0;
+        uint64_t inFlightRequestId = 0;
+    };
+
     mGBAHelper& gba;
     Logger logger;
+    DewpointHighScore::Store highScoreStore;
     FullscreenSetter fullscreenSetter;
     FullscreenGetter fullscreenGetter;
     bool steamInitialized;
@@ -130,10 +139,12 @@ struct DewpointRuntime::Impl {
     bool ugcOverflow;
     std::array<std::unique_ptr<CSteamLeaderboardHelper>, BOARD_COUNT> boards;
     std::array<bool, BOARD_COUNT> boardInitializationAttempted;
+    std::array<UploadSlot, BOARD_COUNT> uploadSlots;
     std::unordered_map<uint32_t, EntryReference> entryReferences;
 
     Impl(mGBAHelper& gba, Logger logger)
-        : gba(gba), logger(std::move(logger)), steamInitialized(false), buttonInputType(ButtonInputType::PCKeyboard),
+        : gba(gba), logger(std::move(logger)), highScoreStore(this->logger),
+          steamInitialized(false), buttonInputType(ButtonInputType::PCKeyboard),
           fullscreen(false), exitRequested(false), exitCode(0),
           selectedBoardId(-1), sendUgc(false), guestEntryAddress(0), ugcReadIndex(0),
           ugcSize(0), ugcGeneration(0),
@@ -161,6 +172,39 @@ struct DewpointRuntime::Impl {
         return boardId >= 0 && boardId < BOARD_COUNT;
     }
 
+    uint64_t currentSteamId() const
+    {
+        if (!steamInitialized) {
+            return 0;
+        }
+        ISteamUser* user = SteamUser();
+        if (!user) {
+            return 0;
+        }
+        const CSteamID steamId = user->GetSteamID();
+        return steamId.IsValid() ? steamId.ConvertToUint64() : 0;
+    }
+
+    bool configureHighScoreStore(const std::string& directory)
+    {
+        if (!highScoreStore.setDirectory(directory)) {
+            return false;
+        }
+        for (int boardId = 0; boardId < BOARD_COUNT; ++boardId) {
+            DewpointHighScore::Record record;
+            const auto result = highScoreStore.load(boardId, &record);
+            auto& slot = uploadSlots[static_cast<size_t>(boardId)];
+            slot = {};
+            if (result == DewpointHighScore::LoadResult::Pending) {
+                slot.record = std::move(record);
+                log("Loaded pending high score for board" + std::to_string(boardId) + ".");
+            } else if (result == DewpointHighScore::LoadResult::Invalid) {
+                highScoreStore.quarantine(boardId);
+            }
+        }
+        return true;
+    }
+
     CSteamLeaderboardHelper* getBoard(int boardId, bool initialize)
     {
         if (!steamInitialized || !validBoardId(boardId)) {
@@ -177,6 +221,167 @@ struct DewpointRuntime::Impl {
             board->initialize();
         }
         return board.get();
+    }
+
+    void finishPendingRecord(int boardId, uint64_t requestId, const char* reason)
+    {
+        auto& slot = uploadSlots[static_cast<size_t>(boardId)];
+        if (!slot.record || slot.record->requestId != requestId) {
+            return;
+        }
+        if (!highScoreStore.markProcessed(boardId, *slot.record)) {
+            log("Failed to mark high score as processed for board" + std::to_string(boardId) + ".");
+            return;
+        }
+        log("Processed pending high score for board" + std::to_string(boardId) + " (" + reason + ").");
+        slot.record.reset();
+    }
+
+    void onPendingUploadFinished(
+        int boardId,
+        uint64_t requestId,
+        CSteamLeaderboardHelper::SendScoreResult result)
+    {
+        auto& slot = uploadSlots[static_cast<size_t>(boardId)];
+        if (slot.inFlightRequestId == requestId) {
+            slot.inFlightRequestId = 0;
+        }
+        if (result == CSteamLeaderboardHelper::SendScoreResult::Success) {
+            finishPendingRecord(boardId, requestId, "uploaded");
+        } else if (result == CSteamLeaderboardHelper::SendScoreResult::Unchanged &&
+                   slot.record && slot.record->requestId == requestId && slot.record->ugc.empty()) {
+            finishPendingRecord(boardId, requestId, "already stored by Steam");
+        }
+    }
+
+    void processPendingBoard(int boardId)
+    {
+        auto& slot = uploadSlots[static_cast<size_t>(boardId)];
+        if (!steamInitialized || !slot.record || slot.inFlightRequestId ||
+            slot.attemptedRequestId == slot.record->requestId) {
+            return;
+        }
+
+        CSteamLeaderboardHelper* board = getBoard(boardId, true);
+        if (!board) {
+            slot.attemptedRequestId = slot.record->requestId;
+            return;
+        }
+        if (board->hasError()) {
+            slot.attemptedRequestId = slot.record->requestId;
+            log("Pending high score retry could not initialize board" + std::to_string(boardId) + ".");
+            return;
+        }
+        if (!board->isDone() || board->isSendScoreBusy()) {
+            return;
+        }
+
+        const uint64_t steamId = currentSteamId();
+        if (!steamId) {
+            slot.attemptedRequestId = slot.record->requestId;
+            log("Pending high score retry has no authenticated Steam user for board" + std::to_string(boardId) + ".");
+            return;
+        }
+        if (slot.record->steamId && slot.record->steamId != steamId) {
+            slot.attemptedRequestId = slot.record->requestId;
+            log("Pending high score belongs to another Steam account for board" + std::to_string(boardId) + ".");
+            return;
+        }
+        if (!slot.record->steamId) {
+            slot.record->steamId = steamId;
+            if (!highScoreStore.savePending(boardId, *slot.record)) {
+                slot.attemptedRequestId = slot.record->requestId;
+                log("Failed to bind pending high score to the Steam account for board" + std::to_string(boardId) + ".");
+                return;
+            }
+        }
+
+        bool attachUGCWhenUnchanged = false;
+        if (LeaderboardEntry_t* current = board->getMyEntry()) {
+            if (current->m_nScore == slot.record->score) {
+                attachUGCWhenUnchanged = !slot.record->ugc.empty();
+            } else {
+                bool sortOrderKnown = false;
+                const bool pendingIsBetter = board->isScoreBetter(slot.record->score, current->m_nScore, &sortOrderKnown);
+                if (sortOrderKnown && !pendingIsBetter) {
+                    finishPendingRecord(boardId, slot.record->requestId, "superseded by a better Steam score");
+                    return;
+                }
+            }
+        }
+
+        const uint64_t requestId = slot.record->requestId;
+        const uint8_t* ugc = slot.record->ugc.empty() ? nullptr : slot.record->ugc.data();
+        const size_t ugcSize = slot.record->ugc.size();
+        slot.attemptedRequestId = requestId;
+        slot.inFlightRequestId = requestId;
+        const bool accepted = board->sendScore(
+            slot.record->score,
+            ugc,
+            ugcSize,
+            attachUGCWhenUnchanged,
+            [this, boardId, requestId](CSteamLeaderboardHelper::SendScoreResult result) {
+                onPendingUploadFinished(boardId, requestId, result);
+            });
+        if (!accepted && slot.inFlightRequestId == requestId) {
+            slot.inFlightRequestId = 0;
+        }
+    }
+
+    void processPendingScores()
+    {
+        for (int boardId = 0; boardId < BOARD_COUNT; ++boardId) {
+            processPendingBoard(boardId);
+        }
+    }
+
+    void submitScore(int boardId, int32_t score)
+    {
+        if (!validBoardId(boardId)) {
+            log("Rejected high score for an invalid leaderboard.");
+            return;
+        }
+        if (sendUgc && ugcOverflow) {
+            log("Score upload rejected because its UGC buffer overflowed.");
+            return;
+        }
+
+        DewpointHighScore::Record record;
+        record.score = score;
+        if (sendUgc && !ugcData.empty()) {
+            record.ugc = ugcData;
+        }
+        record.requestId = DewpointHighScore::Store::createRequestId();
+        record.steamId = currentSteamId();
+
+        if (highScoreStore.isConfigured()) {
+            const auto& existing = uploadSlots[static_cast<size_t>(boardId)].record;
+            if (existing && existing->steamId && existing->steamId != record.steamId) {
+                log("High score was not saved because an entry for another or unknown Steam account is pending on board" +
+                    std::to_string(boardId) + ".");
+                return;
+            }
+            if (highScoreStore.savePending(boardId, record)) {
+                auto& slot = uploadSlots[static_cast<size_t>(boardId)];
+                slot.record = std::move(record);
+                slot.attemptedRequestId = 0;
+            } else {
+                log("High score upload was not started because retry data could not be persisted for board" +
+                    std::to_string(boardId) + ".");
+            }
+            return;
+        }
+
+        log("High score retry storage is unavailable for board" + std::to_string(boardId) + ".");
+        CSteamLeaderboardHelper* board = getBoard(boardId, true);
+        if (!board) {
+            return;
+        }
+        if (record.ugc.empty()) {
+            board->sendScore(score);
+        } else {
+            board->sendScore(score, record.ugc.data(), record.ugc.size());
+        }
     }
 
     LeaderboardEntry_t* resolveEntry(const EntryReference& reference)
@@ -339,7 +544,13 @@ void DewpointRuntime::tick()
 {
     if (impl->steamInitialized) {
         SteamAPI_RunCallbacks();
+        impl->processPendingScores();
     }
+}
+
+bool DewpointRuntime::setHighScoreStorageDirectory(const std::string& directory)
+{
+    return impl->configureHighScoreStore(directory);
 }
 
 void DewpointRuntime::setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter)
@@ -409,9 +620,6 @@ void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
         }
         return;
     }
-    if (!impl->steamInitialized) {
-        return;
-    }
     switch (index) {
         case DpaIndexAchievement:
             if (!value) {
@@ -426,24 +634,12 @@ void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
             break;
         case DpaIndexSetBoardId:
             impl->selectedBoardId = impl->validBoardId(static_cast<int32_t>(value)) ? static_cast<int32_t>(value) : -1;
-            if (impl->selectedBoardId >= 0) {
+            if (impl->steamInitialized && impl->selectedBoardId >= 0) {
                 impl->getBoard(impl->selectedBoardId, true);
             }
             break;
         case DpaIndexSetUgcOption: impl->sendUgc = value != 0; break;
-        case DpaIndexSendScore: {
-            CSteamLeaderboardHelper* board = impl->getBoard(impl->selectedBoardId, true);
-            if (board) {
-                if (impl->sendUgc && impl->ugcOverflow) {
-                    impl->log("Score upload rejected because its UGC buffer overflowed.");
-                } else if (impl->sendUgc && !impl->ugcData.empty()) {
-                    board->sendScore(static_cast<int32_t>(value), impl->ugcData.data(), impl->ugcData.size());
-                } else {
-                    board->sendScore(static_cast<int32_t>(value));
-                }
-            }
-            break;
-        }
+        case DpaIndexSendScore: impl->submitScore(impl->selectedBoardId, static_cast<int32_t>(value)); break;
         case DpaIndexBoardEntry: impl->guestEntryAddress = value; break;
         case DpaIndexBoardEntryGet: impl->writeEntry(static_cast<int32_t>(value)); break;
         case DpaIndexUgcClear: impl->clearUgc(); break;
