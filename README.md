@@ -62,7 +62,7 @@ flowchart
 
 ## How to Use
 
-### Pre-request
+### Prerequisites
 
 1. Valve と Steam 配信契約を締結
 2. Steamworks SDK を入手
@@ -171,7 +171,7 @@ __Steam 自動クラウド設定:__
   - サブディレクトリ: `save`
   - パターン: `save.dat`
   - OS: `全てのOS`
-- `config.dat` (ウィドウモード、ウィンドウサイズ、ウィンドウ位置など)
+- `config.dat` (ウィンドウモード、ウィンドウサイズ、ウィンドウ位置など)
   - ルート: `アプリのインストールディレクトリ`
   - サブディレクトリ: `save`
   - パターン: `config.dat`
@@ -249,9 +249,9 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 
 ### Windows Build Environment
 
-- ビルドには Platform SDK (NMAKE/CL/RC/LINKなど) が必要です。
-- Visual Studio は必須ではありませんが、Visual C++ のコマンドライン環境でビルドできます。
-- Visual Studio 2022 Community//Professional のコマンドライン環境で正常にコンパイルできることを確認してます。
+- ビルドには Visual Studio Build ToolsのC++ツールセットとWindows SDK (NMAKE/CL/RC/LINKなど) が必要です。
+- Visual Studio の IDE は使用しません。
+- Visual Studio 2022 Community/Professional のコマンドライン環境で正常にコンパイルできることを確認しています。
 
 ### macOS Build Environment
 
@@ -266,10 +266,10 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 
 ### Recommended Repository Structure
 
-例えば、以下のように dewpoint-advance をサブモジュールと追加しつつ package.conf や GBA プロジェクトを構成管理する構成を推奨します。
+例えば、以下のように dewpoint-advance をサブモジュールとして追加しつつ package.conf や GBA プロジェクトを構成管理する構成を推奨します。
 
 ```
-+- [dir] You Game App (repo)
++- [dir] Your Game App (repo)
     |
     +-- [dir] dewpoint-advance (submodule)
     |
@@ -313,4 +313,4 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 - The source code covered by MPL 2.0 is available from suzukiplan/dewpoint-advance on GitHub.
 ```
 
-mGBA本体の実装をカスタマイズする必要がある場合、そのカスタマイズ実装が含まれる devpoint-advance の fork リポジトリを public で公開の上、それを案内するようにしてください。
+mGBA本体の実装をカスタマイズする必要がある場合、例えばそのカスタマイズ実装が含まれる devpoint-advance の fork リポジトリを public で公開して案内するなど、確実に MPL 2.0 のライセンス要件を満たせる状態にしなければなりません。
