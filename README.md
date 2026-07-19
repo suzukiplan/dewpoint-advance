@@ -301,7 +301,7 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 
 - Dewpoint Advance を利用している旨
 - Dewpoint Advance には MPL 2.0 ライセンスのコード（mGBA）が含まれる旨
-- MPL 2.0 ランセンスに基づく開示コードは GitHub の `suzukiplan/dewpoint-advance` で入手できる旨
+- MPL 2.0 ライセンスに基づく開示コードは GitHub の `suzukiplan/dewpoint-advance` で入手できる旨
 
 **（記載例）**
 
@@ -309,8 +309,12 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 ## License
 
 - This application was developed using Dewpoint Advance.
-- Dewpoint Advance includes mGBA source code licensed under the Mozilla Public License 2.0 (MPL 2.0).
-- The source code covered by MPL 2.0 is available from suzukiplan/dewpoint-advance on GitHub.
+- This application includes mGBA, licensed under the Mozilla Public License 2.0 (MPL 2.0).
+- The corresponding source code covered by MPL 2.0 is available in the “suzukiplan/dewpoint-advance” repository on GitHub.
 ```
+
+> Steam のストア説明文には URL を記載することができないため、上記のような書き方にする必要があります。
+>
+> Steam 以外のプラットフォームでストア説明文に URL を記述可能な場合、正確なURL（[https://github.com/suzukiplan/dewpoint-advance/](https://github.com/suzukiplan/dewpoint-advance/)）を記述してください。
 
 mGBA本体の実装をカスタマイズする必要がある場合、例えばそのカスタマイズ実装が含まれる devpoint-advance の fork リポジトリを public で公開して案内するなど、確実に MPL 2.0 のライセンス要件を満たせる状態にしなければなりません。
