@@ -131,7 +131,7 @@ package: clean all $(ENTITLEMENTS)
 	else \
 		/usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "${APP_CONTENTS}/Info.plist"; \
 	fi
-	cp -p ./game "${APP_MACOS}/${ExeName}"
+	cp -p ./${ExeName} "${APP_MACOS}/${ExeName}"
 	chmod +x "${APP_MACOS}/${ExeName}"
 	@test -n "$(MGBA_RUNTIME_NAME)" || { echo "Unable to determine the mGBA runtime library name" >&2; exit 1; }
 	cp -pL "$(MGBA_LIBRARY)" "${APP_MACOS}/$(MGBA_RUNTIME_NAME)"
