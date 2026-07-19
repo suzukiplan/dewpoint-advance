@@ -125,7 +125,10 @@ bool getHighScoreStorageDirectory(std::string* directory)
         safeAppName = "DewpointGame";
     }
     char hashSuffix[16]{};
-    std::snprintf(hashSuffix, sizeof(hashSuffix), "-%08X", appNameHash);
+    // mGBA's compatibility header maps the unqualified snprintf token to
+    // _snprintf on MSVC. Use the bounds-checked CRT function directly so the
+    // macro cannot turn std::snprintf into the nonexistent std::_snprintf.
+    sprintf_s(hashSuffix, sizeof(hashSuffix), "-%08X", appNameHash);
     safeAppName += hashSuffix;
 
     *directory = DewpointPath::join(

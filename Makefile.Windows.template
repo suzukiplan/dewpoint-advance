@@ -9,7 +9,7 @@ MGBA_LIBRARY = $(MGBA_BUILD_DIR)\mgba.lib
 STEAM_LIBRARY = steamworks\redistributable_bin\steam_api.lib
 STEAM_RUNTIME = steam_api.dll
 
-CXXFLAGS = /nologo /O2 /Zi /EHsc /std:c++17 /permissive- /utf-8 /W3 /MD /D_NDEBUG /D_WINDOWS /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DWIN32_LEAN_AND_MEAN /DENABLE_DIRECTORIES /DENABLE_VFS /I src /I mgba\include /I $(MGBA_BUILD_DIR)\include /I steamworks\public\steam
+CXXFLAGS = /nologo /O2 /Zi /EHsc /std:c++17 /permissive- /utf-8 /W3 /MD /D_NDEBUG /D_WINDOWS /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DWIN32_LEAN_AND_MEAN /DENABLE_DIRECTORIES /DENABLE_VFS /I src /I mgba\include /I $(MGBA_BUILD_DIR)\include /external:I steamworks\public\steam /external:W0
 CFLAGS = /nologo /O2 /Zi /TC /W3 /MD /D_NDEBUG /D_WINDOWS /D_CRT_SECURE_NO_WARNINGS
 
 OBJECTS = \
