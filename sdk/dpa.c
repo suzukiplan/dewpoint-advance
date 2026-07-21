@@ -46,6 +46,7 @@ enum DpaIndex {
     DpaAppVersion,         // [O] アプリケーションバージョン文字列を取得
     DpaButtonA,            // [I] Aボタンのボタンテキスト ('A'|'X'|'X')
     DpaButtonB,            // [I] Bボタンのボタンテキスト ('B'|'O'|'Z')
+    DpaIndexUgcLimitSize,  // [I/O] UGC データ（圧縮前）の上限サイズ
 };
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
@@ -150,6 +151,23 @@ int32_t dpa_ugc_read(int index)
     }
     _dpa[DpaIndexUgcReadPtr] = (uint32_t)index;
     return (int32_t)_dpa[DpaIndexUgcRead];
+}
+
+int dpa_ugc_limit_size_set(int size)
+{
+    if (!dpa_is_enabled_internal()) {
+        return -1;
+    }
+    _dpa[DpaIndexUgcLimitSize] = (uint32_t)size;
+    return (int)_dpa[DpaIndexUgcLimitSize];
+}
+
+int dpa_ugc_limit_size_get(void)
+{
+    if (!dpa_is_enabled_internal()) {
+        return -1;
+    }
+    return (int)_dpa[DpaIndexUgcLimitSize];
 }
 
 void dpa_exit(int exit_code)

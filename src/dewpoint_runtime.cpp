@@ -9,6 +9,7 @@
 #include "CSteamLeaderboardHelper.hpp"
 #include "dewpoint_define.h"
 #include "highscore_store.h"
+#include "ugc_limits.h"
 
 #include <array>
 #include <cstdint>
@@ -26,7 +27,6 @@ namespace
 constexpr uint32_t DPMID = ('D' << 24) | ('E' << 16) | ('W' << 8) | 'P';
 constexpr int BOARD_COUNT = DewpointHighScore::BOARD_COUNT;
 constexpr size_t MAX_ACHIEVEMENT_ID = 127;
-constexpr size_t MAX_UGC_SIZE = DewpointHighScore::MAX_UGC_SIZE;
 
 enum DpaIndex : uint32_t {
     DpaIndexId = 0,
@@ -48,8 +48,9 @@ enum DpaIndex : uint32_t {
     DpaAppVersion,
     DpaButtonA,
     DpaButtonB,
+    DpaIndexUgcLimitSize,
 };
-static_assert(DpaButtonB + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
+static_assert(DpaIndexUgcLimitSize + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
 
 struct ButtonCharacters {
     char a;
@@ -131,6 +132,7 @@ struct DewpointRuntime::Impl {
     bool sendUgc;
     uint32_t guestEntryAddress;
     uint32_t ugcReadIndex;
+    uint32_t ugcSizeLimit;
     int32_t ugcSize;
     uint64_t ugcGeneration;
     std::string achievementId;
@@ -140,6 +142,7 @@ struct DewpointRuntime::Impl {
     std::array<std::unique_ptr<CSteamLeaderboardHelper>, BOARD_COUNT> boards;
     std::array<bool, BOARD_COUNT> boardInitializationAttempted;
     std::array<UploadSlot, BOARD_COUNT> uploadSlots;
+    std::array<bool, BOARD_COUNT> pendingLoadDeferred;
     std::unordered_map<uint32_t, EntryReference> entryReferences;
 
     Impl(mGBAHelper& gba, Logger logger)
@@ -147,8 +150,9 @@ struct DewpointRuntime::Impl {
           steamInitialized(false), buttonInputType(ButtonInputType::PCKeyboard),
           fullscreen(false), exitRequested(false), exitCode(0),
           selectedBoardId(-1), sendUgc(false), guestEntryAddress(0), ugcReadIndex(0),
-          ugcSize(0), ugcGeneration(0),
-          achievementOverflow(false), ugcOverflow(false), boardInitializationAttempted{}
+          ugcSizeLimit(DewpointUgc::DEFAULT_SIZE_LIMIT), ugcSize(0), ugcGeneration(0),
+          achievementOverflow(false), ugcOverflow(false), boardInitializationAttempted{},
+          pendingLoadDeferred{}
     {
     }
 
@@ -185,22 +189,29 @@ struct DewpointRuntime::Impl {
         return steamId.IsValid() ? steamId.ConvertToUint64() : 0;
     }
 
+    void loadPendingRecord(int boardId)
+    {
+        DewpointHighScore::Record record;
+        const auto result = highScoreStore.load(boardId, &record);
+        const size_t index = static_cast<size_t>(boardId);
+        auto& slot = uploadSlots[index];
+        slot = {};
+        pendingLoadDeferred[index] = result == DewpointHighScore::LoadResult::LimitExceeded;
+        if (result == DewpointHighScore::LoadResult::Pending) {
+            slot.record = std::move(record);
+            log("Loaded pending high score for board" + std::to_string(boardId) + ".");
+        } else if (result == DewpointHighScore::LoadResult::Invalid) {
+            highScoreStore.quarantine(boardId);
+        }
+    }
+
     bool configureHighScoreStore(const std::string& directory)
     {
         if (!highScoreStore.setDirectory(directory)) {
             return false;
         }
         for (int boardId = 0; boardId < BOARD_COUNT; ++boardId) {
-            DewpointHighScore::Record record;
-            const auto result = highScoreStore.load(boardId, &record);
-            auto& slot = uploadSlots[static_cast<size_t>(boardId)];
-            slot = {};
-            if (result == DewpointHighScore::LoadResult::Pending) {
-                slot.record = std::move(record);
-                log("Loaded pending high score for board" + std::to_string(boardId) + ".");
-            } else if (result == DewpointHighScore::LoadResult::Invalid) {
-                highScoreStore.quarantine(boardId);
-            }
+            loadPendingRecord(boardId);
         }
         return true;
     }
@@ -213,7 +224,7 @@ struct DewpointRuntime::Impl {
         auto& board = boards[static_cast<size_t>(boardId)];
         if (!board) {
             board = std::make_unique<CSteamLeaderboardHelper>(
-                "board" + std::to_string(boardId), "ugc", MAX_UGC_SIZE, logger);
+                "board" + std::to_string(boardId), "ugc", ugcSizeLimit, logger);
             board->setMaxEntries(100);
         }
         if (initialize && !boardInitializationAttempted[static_cast<size_t>(boardId)]) {
@@ -439,7 +450,7 @@ struct DewpointRuntime::Impl {
             if (generation != ugcGeneration) {
                 return;
             }
-            if (!data || !size || size > MAX_UGC_SIZE) {
+            if (!data || !size || size > ugcSizeLimit) {
                 ugcData.clear();
                 ugcSize = -1;
                 return;
@@ -465,7 +476,7 @@ struct DewpointRuntime::Impl {
     void appendUgcWord(uint32_t value)
     {
         ++ugcGeneration;
-        if (ugcData.size() > MAX_UGC_SIZE - sizeof(value)) {
+        if (ugcData.size() > ugcSizeLimit - sizeof(value)) {
             if (!ugcOverflow) {
                 log("UGC buffer limit exceeded; append rejected.");
                 ugcOverflow = true;
@@ -486,6 +497,42 @@ struct DewpointRuntime::Impl {
         ugcSize = 0;
         ugcData.clear();
         ugcOverflow = false;
+    }
+
+    void setUgcSizeLimit(uint32_t size)
+    {
+        if (!DewpointUgc::isValidSizeLimit(size)) {
+            log("Rejected invalid UGC size limit: " + std::to_string(size) + ".");
+            return;
+        }
+        if (size == ugcSizeLimit) {
+            return;
+        }
+        for (const auto& board : boards) {
+            if (board && (board->isSendScoreBusy() || board->isDownloadBusyUGC())) {
+                log("Rejected UGC size limit change while a UGC operation is in progress.");
+                return;
+            }
+        }
+        for (size_t index = 0; index < uploadSlots.size(); ++index) {
+            if (uploadSlots[index].record && uploadSlots[index].record->ugc.size() > size) {
+                uploadSlots[index] = {};
+                pendingLoadDeferred[index] = true;
+            }
+        }
+        ugcSizeLimit = size;
+        highScoreStore.setUgcSizeLimit(size);
+        for (auto& board : boards) {
+            if (board) {
+                board->setUgcSizeLimit(size);
+            }
+        }
+        for (int boardId = 0; boardId < BOARD_COUNT; ++boardId) {
+            if (pendingLoadDeferred[static_cast<size_t>(boardId)]) {
+                loadPendingRecord(boardId);
+            }
+        }
+        clearUgc();
     }
 
     void submitAchievement()
@@ -594,6 +641,7 @@ uint32_t DewpointRuntime::readRegister(uint32_t index)
         }
         case DpaIndexUgcSize: return static_cast<uint32_t>(impl->ugcSize);
         case DpaIndexUgcRead: return impl->readUgcWord();
+        case DpaIndexUgcLimitSize: return impl->ugcSizeLimit;
         case DpaButtonA: return static_cast<uint32_t>(getButtonCharacters(impl->buttonInputType).a);
         case DpaButtonB: return static_cast<uint32_t>(getButtonCharacters(impl->buttonInputType).b);
         default: return 0;
@@ -646,6 +694,7 @@ void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
         case DpaIndexUgcAppend: impl->appendUgcWord(value); break;
         case DpaIndexUgcDownload: impl->downloadUgc(); break;
         case DpaIndexUgcReadPtr: impl->ugcReadIndex = value; break;
+        case DpaIndexUgcLimitSize: impl->setUgcSizeLimit(value); break;
         default: break;
     }
 }

@@ -39,6 +39,7 @@
 #include <time.h>
 #include "steam_api.h"
 #include "ugc_codec.h"
+#include "ugc_limits.h"
 
 #ifndef STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS
 #define STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS SteamUserStats
@@ -68,7 +69,7 @@ class CSteamLeaderboardHelper
     using SendScoreCallback = std::function<void(SendScoreResult)>;
 
   private:
-    static constexpr size_t kDefaultUGCSizeLimit = 1024u * 1024u;
+    static constexpr size_t kDefaultUGCSizeLimit = DewpointUgc::DEFAULT_SIZE_LIMIT;
 
     enum class InitState {
         Idle,
@@ -357,6 +358,25 @@ class CSteamLeaderboardHelper
         callResultShareUGC.Cancel();
         callResultAttachUGC.Cancel();
         callResultDownloadUGC.Cancel();
+    }
+
+    /**
+     * @brief Changes the uncompressed UGC size limit
+     * @param sizeLimit UGC size limit in bytes
+     * @return true: changed, false: invalid limit
+     */
+    bool setUgcSizeLimit(uint32_t sizeLimit)
+    {
+        if (!DewpointUgc::isValidSizeLimit(sizeLimit)) {
+            return false;
+        }
+        const size_t compressedSizeLimit = DewpointUgc::maxCompressedSize(sizeLimit);
+        if (!compressedSizeLimit) {
+            return false;
+        }
+        ugcSizeLimit = sizeLimit;
+        compressedUgcSizeLimit = compressedSizeLimit;
+        return true;
     }
 
     /**

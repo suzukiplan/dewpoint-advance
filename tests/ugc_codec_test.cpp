@@ -1,9 +1,11 @@
 #include "ugc_codec.h"
+#include "ugc_limits.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -60,6 +62,9 @@ void testRoundTrips()
 
 void testCompressionLimit()
 {
+    assert(DewpointUgc::maxCompressedSize(DewpointUgc::MAX_SIZE_LIMIT) <=
+           static_cast<size_t>(std::numeric_limits<int32_t>::max()));
+
     const std::vector<uint8_t> data(8, 0x11);
     std::vector<uint8_t> output{0xFF};
     std::string error;

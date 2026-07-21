@@ -159,8 +159,22 @@ bool syncDirectory(const std::string& directory)
 } // namespace
 
 Store::Store(Logger logger)
-    : logger(std::move(logger))
+    : logger(std::move(logger)), ugcSizeLimit(DewpointUgc::DEFAULT_SIZE_LIMIT)
 {
+}
+
+bool Store::setUgcSizeLimit(uint32_t size)
+{
+    if (!DewpointUgc::isValidSizeLimit(size)) {
+        return false;
+    }
+    ugcSizeLimit = size;
+    return true;
+}
+
+uint32_t Store::getUgcSizeLimit() const
+{
+    return ugcSizeLimit;
 }
 
 bool Store::setDirectory(std::string directory)
@@ -214,25 +228,36 @@ LoadResult Store::load(int boardId, Record* record)
     }
     const std::streamsize fileSize = input.tellg();
     if (fileSize < static_cast<std::streamsize>(HEADER_SIZE + FOOTER_SIZE) ||
-        static_cast<uint64_t>(fileSize) > HEADER_SIZE + MAX_UGC_SIZE + FOOTER_SIZE) {
+        static_cast<uint64_t>(fileSize) > HEADER_SIZE + static_cast<uint64_t>(DewpointUgc::MAX_SIZE_LIMIT) + FOOTER_SIZE) {
         log("Rejected pending high score file with an invalid size: " + path);
         return LoadResult::Invalid;
     }
+
+    std::array<uint8_t, HEADER_SIZE> header{};
+    input.seekg(0);
+    if (!input.read(reinterpret_cast<char*>(header.data()), header.size())) {
+        log("Failed to read pending high score header: " + path);
+        return LoadResult::Error;
+    }
+    const uint32_t flag = readU32(header.data());
+    const uint32_t ugcSize = readU32(header.data() + 8);
+    if ((flag != PENDING_FLAG && flag != PROCESSED_FLAG) ||
+        ugcSize > DewpointUgc::MAX_SIZE_LIMIT ||
+        (ugcSize % sizeof(uint32_t)) != 0 ||
+        static_cast<uint64_t>(fileSize) != HEADER_SIZE + static_cast<uint64_t>(ugcSize) + FOOTER_SIZE) {
+        log("Rejected malformed pending high score file: " + path);
+        return LoadResult::Invalid;
+    }
+    if (ugcSize > ugcSizeLimit) {
+        log("Deferred pending high score file above the current UGC size limit: " + path);
+        return LoadResult::LimitExceeded;
+    }
+
     std::vector<uint8_t> bytes(static_cast<size_t>(fileSize));
     input.seekg(0);
     if (!input.read(reinterpret_cast<char*>(bytes.data()), fileSize)) {
         log("Failed to read pending high score file: " + path);
         return LoadResult::Error;
-    }
-
-    const uint32_t flag = readU32(bytes.data());
-    const uint32_t ugcSize = readU32(bytes.data() + 8);
-    if ((flag != PENDING_FLAG && flag != PROCESSED_FLAG) ||
-        ugcSize > MAX_UGC_SIZE ||
-        (ugcSize % sizeof(uint32_t)) != 0 ||
-        bytes.size() != HEADER_SIZE + static_cast<size_t>(ugcSize) + FOOTER_SIZE) {
-        log("Rejected malformed pending high score file: " + path);
-        return LoadResult::Invalid;
     }
 
     const uint8_t* footer = bytes.data() + HEADER_SIZE + ugcSize;
@@ -316,7 +341,7 @@ std::string Store::pathForBoard(int boardId) const
 bool Store::save(int boardId, const Record& record, bool processed)
 {
     if (!isConfigured() || !validBoardId(boardId) || !record.requestId ||
-        record.ugc.size() > MAX_UGC_SIZE || (record.ugc.size() % sizeof(uint32_t)) != 0) {
+        record.ugc.size() > ugcSizeLimit || (record.ugc.size() % sizeof(uint32_t)) != 0) {
         return false;
     }
 

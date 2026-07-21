@@ -150,6 +150,8 @@ The keyboard mappings are as follows:
 | `dpa_ugc_download` | Start downloading data into the shared UGC buffer |
 | `dpa_ugc_size` | Get the size of the shared UGC buffer |
 | `dpa_ugc_read` | Read 4 bytes from the shared UGC buffer |
+| `dpa_ugc_limit_size_set` | Set the uncompressed UGC size limit |
+| `dpa_ugc_limit_size_get` | Get the uncompressed UGC size limit |
 | `dpa_fullscreen_set` | Switch between fullscreen and windowed modes |
 | `dpa_fullscreen_get` | Get the fullscreen/windowed mode state |
 | `dpa_exit` | Terminate the process (hangs on physical hardware) |
@@ -254,6 +256,19 @@ Magic by chance, this identification is not mathematically perfect.
 
 The 16-byte Dewpoint UGC header consists of the 12-byte Magic `DPA-UGC-LZ4\x1A`, a little-endian 16-bit format version
 (currently `1`), and a little-endian 16-bit reserved field (currently `0`).
+
+The hard limit for UGC is applied to the uncompressed data. It defaults to 1 MiB (`1048576` bytes) and can be changed
+by the GBA application with `dpa_ugc_limit_size_set`; `dpa_ugc_limit_size_get` returns the current value. A valid limit is
+a multiple of 4 from 4 through 2146435072 bytes. The setter returns the effective limit, leaves it unchanged when given
+an invalid value or while a UGC operation is in progress, and clears the shared UGC buffer when the value changes. Set
+the limit before appending, downloading, or submitting UGC. The selected limit is used consistently for the shared
+buffer, retry files, Steam uploads, and download/decompression validation. The selected value remains in effect until
+the process exits or another value is set,
+so applications that use a custom value should set it during startup. A retry file larger than the current limit is
+retained and deferred; it is loaded when the application sets a sufficient limit instead of being treated as corrupt.
+
+Increasing the limit also increases the possible local storage, memory, and Steam Cloud usage. Configure the Steam Cloud
+quota accordingly, and select a value supported by every target platform when porting the Runtime.
 
 > _NOTE: This configuration is not required if your game does not use Leaderboards through the Dewpoint SDK._
 

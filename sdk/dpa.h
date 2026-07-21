@@ -117,6 +117,21 @@ int dpa_ugc_size(void);
 int32_t dpa_ugc_read(int index);
 
 /**
+ * @brief UGCデータ（圧縮前）の上限サイズを変更
+ * @param size 4〜2146435072の4の倍数（bytes）
+ * @return 変更後の上限サイズ、Dewpoint Advance SDK が利用不可の場合は -1
+ * @remark 不正なサイズを指定した場合、またはUGC処理中の場合は変更されず、現在の上限サイズを返す
+ * @remark 上限サイズを変更すると共通UGCバッファはクリアされる
+ */
+int dpa_ugc_limit_size_set(int size);
+
+/**
+ * @brief UGCデータ（圧縮前）の上限サイズを取得
+ * @return 現在の上限サイズ（bytes）、Dewpoint Advance SDK が利用不可の場合は -1
+ */
+int dpa_ugc_limit_size_get(void);
+
+/**
  * @brief プロセス終了（実機の場合はハングアップ）
  * @param exit_code 終了コード
  */

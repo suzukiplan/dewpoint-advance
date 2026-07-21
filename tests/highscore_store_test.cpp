@@ -45,6 +45,11 @@ int main()
     });
     assert(store.setDirectory(directory.string()));
     assert(store.isConfigured());
+    assert(store.getUgcSizeLimit() == DewpointUgc::DEFAULT_SIZE_LIMIT);
+    assert(!store.setUgcSizeLimit(0));
+    assert(!store.setUgcSizeLimit(5));
+    assert(!store.setUgcSizeLimit(DewpointUgc::MAX_SIZE_LIMIT + 1u));
+    assert(store.getUgcSizeLimit() == DewpointUgc::DEFAULT_SIZE_LIMIT);
 
     DewpointHighScore::Record loaded;
     assert(store.load(0, &loaded) == DewpointHighScore::LoadResult::Missing);
@@ -77,6 +82,16 @@ int main()
     assert(loaded.ugc == record.ugc);
     assert(loaded.requestId == record.requestId);
     assert(loaded.steamId == record.steamId);
+
+    assert(store.setUgcSizeLimit(static_cast<uint32_t>(record.ugc.size())));
+    DewpointHighScore::Record oversized = record;
+    oversized.ugc.insert(oversized.ugc.end(), sizeof(uint32_t), 0);
+    assert(!store.savePending(2, oversized));
+    assert(store.load(0, &loaded) == DewpointHighScore::LoadResult::Pending);
+    assert(store.setUgcSizeLimit(sizeof(uint32_t)));
+    assert(store.load(0, &loaded) == DewpointHighScore::LoadResult::LimitExceeded);
+    assert(std::filesystem::exists(boardPath));
+    assert(store.setUgcSizeLimit(DewpointUgc::DEFAULT_SIZE_LIMIT));
 
     assert(store.markProcessed(0, record));
     assert(store.load(0, &loaded) == DewpointHighScore::LoadResult::Processed);

@@ -6,6 +6,8 @@
  */
 #pragma once
 
+#include "ugc_limits.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -15,7 +17,6 @@
 namespace DewpointHighScore
 {
 constexpr int BOARD_COUNT = 16;
-constexpr size_t MAX_UGC_SIZE = 1024 * 1024;
 
 struct Record {
     int32_t score = 0;
@@ -28,6 +29,7 @@ enum class LoadResult {
     Missing,
     Pending,
     Processed,
+    LimitExceeded,
     Invalid,
     Error,
 };
@@ -38,6 +40,9 @@ class Store final
     using Logger = std::function<void(const char*)>;
 
     explicit Store(Logger logger = {});
+
+    bool setUgcSizeLimit(uint32_t size);
+    uint32_t getUgcSizeLimit() const;
 
     bool setDirectory(std::string directory);
     bool isConfigured() const;
@@ -58,5 +63,6 @@ class Store final
 
     Logger logger;
     std::string directory;
+    uint32_t ugcSizeLimit;
 };
 } // namespace DewpointHighScore
