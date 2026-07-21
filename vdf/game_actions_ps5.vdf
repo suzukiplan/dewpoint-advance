@@ -1,7 +1,7 @@
 "controller_mappings"
 {
 	"version"		"3"
-	"revision"		"25"
+	"revision"		"26"
 	"controller_type"		"controller_ps5"
 	"action_layers"
 	{
@@ -1210,12 +1210,28 @@
 	"group"
 	{
 		"id"		"40"
-		"mode"		"four_buttons"
+		"mode"		"single_button"
 		"name"		""
 		"description"		""
 		"inputs"
 		{
+			"click"
+			{
+				"activators"
+				{
+					"Full_Press"
+					{
+						"bindings"
+						{
+							"binding"		"game_action InGameControls button_start, ポーズ, , "
+						}
+					}
+				}
+				"disabled_activators"
+				{
 
+				}
+			}
 		}
 	}
 	"preset"
@@ -1231,7 +1247,7 @@
 			"27"		"dpad active"
 			"35"		"joystick active"
 			"34"		"right_joystick active"
-			"40"		"right_trackpad inactive"
+			"40"		"right_trackpad active"
 		}
 	}
 	"settings"

@@ -1,7 +1,7 @@
 "controller_mappings"
 {
 	"version"		"3"
-	"revision"		"28"
+	"revision"		"29"
 	"controller_type"		"controller_ps4"
 	"action_layers"
 	{
@@ -450,12 +450,28 @@
 	"group"
 	{
 		"id"		"25"
-		"mode"		"four_buttons"
+		"mode"		"single_button"
 		"name"		""
 		"description"		""
 		"inputs"
 		{
+			"click"
+			{
+				"activators"
+				{
+					"Full_Press"
+					{
+						"bindings"
+						{
+							"binding"		"game_action InGameControls button_start, ポーズ, , "
+						}
+					}
+				}
+				"disabled_activators"
+				{
 
+				}
+			}
 		}
 	}
 	"group"
@@ -550,7 +566,7 @@
 			"20"		"joystick active"
 			"18"		"right_joystick inactive"
 			"19"		"right_joystick active"
-			"25"		"center_trackpad inactive"
+			"25"		"center_trackpad active"
 		}
 	}
 	"settings"
