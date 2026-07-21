@@ -246,6 +246,15 @@ Retry files use little-endian byte order. The first 12 bytes contain the process
 At the end is a 28-byte footer containing the format version, CRC, request ID, and Steam ID. Invalid or corrupted
 files are not submitted and are quarantined as `.invalid` files.
 
+UGC attached to Steam Leaderboard entries is encoded as a Dewpoint UGC header (Magic and format version) followed by
+an LZ4 frame with block and content checksums. Downloads without the Magic are treated as legacy uncompressed UGC after
+size and word-alignment validation. If the Magic is present but the header, LZ4 frame, or checksums are invalid, the data
+is rejected instead of falling back to the legacy format. Because legacy data could theoretically begin with the same
+Magic by chance, this identification is not mathematically perfect.
+
+The 16-byte Dewpoint UGC header consists of the 12-byte Magic `DPA-UGC-LZ4\x1A`, a little-endian 16-bit format version
+(currently `1`), and a little-endian 16-bit reserved field (currently `0`).
+
 > _NOTE: This configuration is not required if your game does not use Leaderboards through the Dewpoint SDK._
 
 The ranking range specification uses the lowest common denominator of the platform specifications known to the author as a hard limit, but this is not guaranteed.
@@ -310,7 +319,7 @@ For example, we recommend managing package.conf and your GBA project in a reposi
 
 ## OSS Licenses
 
-The source code under the [./src](./src) directory is licensed under the [MIT License](./LICENSE_DPA.txt), but the final deliverable includes software under the following licenses:
+The Dewpoint Advance source code under [./src](./src) is licensed under the [MIT License](./LICENSE_DPA.txt), except for the bundled LZ4 source under [./src/lz4](./src/lz4). The final deliverable includes software under the following licenses:
 
 - [mGBA](https://mgba.io/)
   - Copyright © 2013–2026 Vicki Pfau.
@@ -321,6 +330,9 @@ The source code under the [./src](./src) directory is licensed under the [MIT Li
 - [SDL2](https://www.libsdl.org/)
   - Copyright © 1997-2025 Sam Lantinga slouken@libsdl.org
   - License: [ZLIB](./LICENSE_SDL2.txt)
+- [LZ4](https://github.com/lz4/lz4)
+  - Copyright © 2011-2020 Yann Collet
+  - License: [BSD 2-Clause](./LICENSE_LZ4.txt)
 - [Dewpoint Advance](https://github.com/suzukiplan/dewpoint-advance)
   - Copyright © 2026 SUZUKI PLAN
   - License: [MIT](./LICENSE_DPA.txt)

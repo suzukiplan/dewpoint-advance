@@ -246,6 +246,14 @@ UGC付きスコアはUGCのLeaderboard添付まで完了した時点で処理済
 最後に形式バージョン、CRC、リクエストID、Steam IDを含む28バイトのフッターを持ちます。不正または破損した
 ファイルは送信されず、`.invalid` ファイルへ隔離されます。
 
+Steam Leaderboardへ添付するUGCは、Magicと形式バージョンを含むDewpoint UGCヘッダーに続けて、ブロックチェックサムと
+コンテンツチェックサムを付けたLZ4フレームを格納します。Magicがないダウンロードデータは、サイズと4バイト境界を検証後、
+LZ4対応前の無圧縮UGCとして扱います。Magicがある状態でヘッダー、LZ4フレーム、またはチェックサムが不正な場合は、旧形式へ
+フォールバックせず拒否します。旧UGCの先頭が偶然同じMagicになる可能性はあるため、数学的に完全な識別ではありません。
+
+16バイトのDewpoint UGCヘッダーは、12バイトのMagic `DPA-UGC-LZ4\x1A`、リトルエンディアン16bitの形式バージョン
+（現在は `1`）、リトルエンディアン16bitの予約領域（現在は `0`）で構成されます。
+
 > _NOTE: Dewpoint SDK で Leaderboard を使用しない場合、この設定は不要です。_
 
 なお、ランキングのレンジ仕様については、私が把握している各プラットフォーム仕様の最小公約数をハードリミットに設定していますが、保証はありません。
@@ -310,7 +318,7 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 
 ## OSS Licenses
 
-[./src](./src) ディレクトリ以下のソースコードは [MIT](./LICENSE_DPA.txt) ですが、最終的な成果物には次のライセンスが含まれます。
+[./src](./src) ディレクトリ以下のDewpoint Advanceのソースコードは [MIT](./LICENSE_DPA.txt) ですが、[./src/lz4](./src/lz4) 以下に組み込まれたLZ4のソースコードは除きます。最終的な成果物には次のライセンスが含まれます。
 
 - [mGBA](https://mgba.io/)
   - Copyright © 2013–2026 Vicki Pfau.
@@ -321,6 +329,9 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 - [SDL2](https://www.libsdl.org/)
   - Copyright © 1997-2025 Sam Lantinga slouken@libsdl.org
   - License: [ZLIB](./LICENSE_SDL2.txt)
+- [LZ4](https://github.com/lz4/lz4)
+  - Copyright © 2011-2020 Yann Collet
+  - License: [BSD 2-Clause](./LICENSE_LZ4.txt)
 - [Dewpoint Advance](https://github.com/suzukiplan/dewpoint-advance)
   - Copyright © 2026 SUZUKI PLAN
   - License: [MIT](./LICENSE_DPA.txt)

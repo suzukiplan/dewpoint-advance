@@ -17,6 +17,11 @@ OBJECTS = \
 	$(BUILD_DIR)\dewpoint_runtime.obj \
 	$(BUILD_DIR)\highscore_store.obj \
 	$(BUILD_DIR)\mgbahelper.obj \
+	$(BUILD_DIR)\ugc_codec.obj \
+	$(BUILD_DIR)\lz4.obj \
+	$(BUILD_DIR)\lz4frame.obj \
+	$(BUILD_DIR)\lz4hc.obj \
+	$(BUILD_DIR)\xxhash.obj \
 	$(BUILD_DIR)\game_rom.obj
 
 all: $(EXENAME) $(STEAM_RUNTIME)
@@ -40,7 +45,7 @@ $(BUILD_DIR)\winmain.obj: src\winmain.cpp src\dewpoint_runtime.h src\dewpoint_de
 	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
 	CL $(CXXFLAGS) /c src\winmain.cpp /Fo$@
 
-$(BUILD_DIR)\dewpoint_runtime.obj: src\dewpoint_runtime.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\highscore_store.h src\mgbahelper.h src\CSteamLeaderboardHelper.hpp
+$(BUILD_DIR)\dewpoint_runtime.obj: src\dewpoint_runtime.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\highscore_store.h src\mgbahelper.h src\CSteamLeaderboardHelper.hpp src\ugc_codec.h
 	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
 	CL $(CXXFLAGS) /c src\dewpoint_runtime.cpp /Fo$@
 
@@ -51,6 +56,26 @@ $(BUILD_DIR)\highscore_store.obj: src\highscore_store.cpp src\highscore_store.h 
 $(BUILD_DIR)\mgbahelper.obj: src\mgbahelper.cpp src\mgbahelper.h src\pathutil.h
 	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
 	CL $(CXXFLAGS) /c src\mgbahelper.cpp /Fo$@
+
+$(BUILD_DIR)\ugc_codec.obj: src\ugc_codec.cpp src\ugc_codec.h src\lz4\lz4frame.h
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CXXFLAGS) /c src\ugc_codec.cpp /Fo$@
+
+$(BUILD_DIR)\lz4.obj: src\lz4\lz4.c src\lz4\lz4.h
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CFLAGS) /c src\lz4\lz4.c /Fo$@
+
+$(BUILD_DIR)\lz4frame.obj: src\lz4\lz4frame.c src\lz4\lz4frame.h src\lz4\lz4.h src\lz4\lz4hc.h src\lz4\xxhash.h
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CFLAGS) /c src\lz4\lz4frame.c /Fo$@
+
+$(BUILD_DIR)\lz4hc.obj: src\lz4\lz4hc.c src\lz4\lz4hc.h src\lz4\lz4.h
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CFLAGS) /c src\lz4\lz4hc.c /Fo$@
+
+$(BUILD_DIR)\xxhash.obj: src\lz4\xxhash.c src\lz4\xxhash.h
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CFLAGS) /c src\lz4\xxhash.c /Fo$@
 
 $(BUILD_DIR)\game_rom.obj: src\game_rom.c
 	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)

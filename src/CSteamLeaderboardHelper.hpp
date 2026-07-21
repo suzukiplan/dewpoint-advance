@@ -38,6 +38,7 @@
 #include <cctype>
 #include <time.h>
 #include "steam_api.h"
+#include "ugc_codec.h"
 
 #ifndef STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS
 #define STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS SteamUserStats
@@ -117,6 +118,7 @@ class CSteamLeaderboardHelper
     InitState initState;
     int maxEntries;
     size_t ugcSizeLimit;
+    size_t compressedUgcSizeLimit;
     SteamLeaderboard_t leaderboard;
     SendScoreState sendScoreState;
     int scoreBeingUploaded;
@@ -317,6 +319,7 @@ class CSteamLeaderboardHelper
           initState(InitState::Idle),
           maxEntries(100),
           ugcSizeLimit(ugcSizeLimit),
+          compressedUgcSizeLimit(DewpointUgc::maxCompressedSize(ugcSizeLimit)),
           leaderboard(0),
           sendScoreState(SendScoreState::Idle),
           scoreBeingUploaded(0),
@@ -657,8 +660,8 @@ class CSteamLeaderboardHelper
         int32 ugcFileSize = -1;
         CSteamID owner{};
         if (storage->GetUGCDetails(entry->m_hUGC, &appId, &ugcDetailName, &ugcFileSize, &owner)) {
-            if (ugcFileSize > 0 && static_cast<size_t>(ugcFileSize) > ugcSizeLimit) {
-                putlog("UGC download failed: size limit exceeded (size=%d, limit=%zu) (%s).", ugcFileSize, ugcSizeLimit, boardName.c_str());
+            if (ugcFileSize > 0 && static_cast<size_t>(ugcFileSize) > compressedUgcSizeLimit) {
+                putlog("UGC download failed: compressed size limit exceeded (size=%d, limit=%zu) (%s).", ugcFileSize, compressedUgcSizeLimit, boardName.c_str());
                 callback(nullptr, 0);
                 return;
             }
@@ -765,7 +768,17 @@ class CSteamLeaderboardHelper
             return false;
         }
         if (data && 0 < size) {
-            ugcUploadData.assign(data, data + size);
+            std::string compressionError;
+            if (!DewpointUgc::compress(
+                    data,
+                    size,
+                    ugcSizeLimit,
+                    &ugcUploadData,
+                    &compressionError)) {
+                putlog("Upload failed: UGC compression failed: %s (%s).", compressionError.c_str(), boardName.c_str());
+                reject();
+                return false;
+            }
             long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
             if (timestamp <= lastUGCSendScoreTimestamp) {
                 timestamp = lastUGCSendScoreTimestamp + 1;
@@ -910,8 +923,8 @@ class CSteamLeaderboardHelper
             maybeReloadDeferred();
             return;
         }
-        if (static_cast<size_t>(callback->m_nSizeInBytes) > ugcSizeLimit) {
-            putlog("UGC download failed: size limit exceeded (size=%d, limit=%zu) (%s).", callback->m_nSizeInBytes, ugcSizeLimit, boardName.c_str());
+        if (static_cast<size_t>(callback->m_nSizeInBytes) > compressedUgcSizeLimit) {
+            putlog("UGC download failed: compressed size limit exceeded (size=%d, limit=%zu) (%s).", callback->m_nSizeInBytes, compressedUgcSizeLimit, boardName.c_str());
             ugcDownloadCallback(nullptr, 0);
             ugcDownloadCallback = nullptr;
             ugcDownloadData.clear();
@@ -970,6 +983,27 @@ class CSteamLeaderboardHelper
             maybeReloadDeferred();
             return;
         }
+        std::vector<uint8_t> decompressedData;
+        DewpointUgc::Encoding encoding = DewpointUgc::Encoding::Lz4;
+        std::string decompressionError;
+        if (!DewpointUgc::extract(
+                ugcDownloadData.data(),
+                ugcDownloadData.size(),
+                ugcSizeLimit,
+                &decompressedData,
+                &encoding,
+                &decompressionError)) {
+            putlog("UGC extraction failed on leaderboard %s: %s.", boardName.c_str(), decompressionError.c_str());
+            ugcDownloadCallback(nullptr, 0);
+            ugcDownloadCallback = nullptr;
+            ugcDownloadData.clear();
+            maybeReloadDeferred();
+            return;
+        }
+        if (encoding == DewpointUgc::Encoding::LegacyUncompressed) {
+            putlog("Extracted legacy uncompressed UGC on leaderboard %s.", boardName.c_str());
+        }
+        ugcDownloadData = std::move(decompressedData);
         ugcDownloadCallback(ugcDownloadData.data(), ugcDownloadData.size());
         ugcDownloadCallback = nullptr;
         maybeReloadDeferred();
