@@ -28,6 +28,7 @@
 #include "pathutil.h"
 #include "steam.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <fstream>
@@ -57,6 +58,11 @@ constexpr int AUDIO_FREQUENCY = 44100;
 constexpr int AUDIO_CHANNELS = 2;
 constexpr int AUDIO_SAMPLES = 2048;
 constexpr Uint32 TARGET_QUEUED_AUDIO_SIZE = AUDIO_FREQUENCY * AUDIO_CHANNELS * sizeof(int16_t) / 20;
+// One GBA frame is 280896 cycles of the 16.78 MHz master clock.
+constexpr double GBA_MASTER_CLOCK_HZ = 16777216.0;
+constexpr double GBA_CYCLES_PER_FRAME = 280896.0;
+constexpr double GBA_FRAME_RATE = GBA_MASTER_CLOCK_HZ / GBA_CYCLES_PER_FRAME;
+constexpr int MAX_EMULATION_CATCH_UP_FRAMES = 4;
 
 struct WindowConfig {
     int32_t fullscreen;
@@ -510,9 +516,16 @@ int main(int argc, char* argv[])
         }
     };
 
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_Renderer* renderer =
+        SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    const bool rendererUsesVsync = renderer != nullptr;
     if (!renderer) {
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+        std::cerr << "Failed to create a VSync renderer; falling back to an unsynchronized renderer: "
+                  << SDL_GetError() << '\n';
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        if (!renderer) {
+            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+        }
     }
     if (!renderer) {
         std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << '\n';
@@ -550,12 +563,21 @@ int main(int argc, char* argv[])
         SDL_DestroyWindow(window);
         return 1;
     }
-    SDL_PauseAudioDevice(audioDevice, 0);
 
     bool running = true;
     bool paused = false;
+    // SDL audio devices start paused. Let the fixed-step loop prebuffer audio
+    // before playback so the VSync wait cannot cause a startup underrun.
+    bool audioPlaybackStarted = false;
     int exitCode = 0;
     mGBAHelper::KeyState keyboardState{};
+    const Uint64 performanceFrequency = SDL_GetPerformanceFrequency();
+    const double emulationFrameTicks =
+        static_cast<double>(performanceFrequency) / GBA_FRAME_RATE;
+    // Present the nearest emulated frame at each VSync instead of immediately
+    // repeating the first frame on displays whose refresh rate is just above 59.73 Hz.
+    double emulationAccumulator = emulationFrameTicks * 1.5;
+    Uint64 previousPerformanceCounter = SDL_GetPerformanceCounter();
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -581,10 +603,13 @@ int main(int argc, char* argv[])
                 } else if (command && event.key.keysym.sym == SDLK_r && !event.key.repeat) {
                     gba.reset();
                     SDL_ClearQueuedAudio(audioDevice);
+                    audioPlaybackStarted = false;
+                    SDL_PauseAudioDevice(audioDevice, 1);
                 } else if (command && event.key.keysym.sym == SDLK_p && !event.key.repeat) {
                     paused = !paused;
                     SDL_ClearQueuedAudio(audioDevice);
-                    SDL_PauseAudioDevice(audioDevice, paused ? 1 : 0);
+                    audioPlaybackStarted = false;
+                    SDL_PauseAudioDevice(audioDevice, 1);
                 } else if (!command) {
                     updateKeyState(&keyboardState, event.key.keysym.sym, true);
                 }
@@ -618,10 +643,23 @@ int main(int argc, char* argv[])
             break;
         }
         if (paused) {
+            previousPerformanceCounter = SDL_GetPerformanceCounter();
             SDL_Delay(10);
             continue;
         }
-        gba.tick();
+
+        const Uint64 performanceCounter = SDL_GetPerformanceCounter();
+        const double elapsedTicks =
+            static_cast<double>(performanceCounter - previousPerformanceCounter);
+        previousPerformanceCounter = performanceCounter;
+        emulationAccumulator = std::min(
+            emulationAccumulator + elapsedTicks,
+            emulationFrameTicks * MAX_EMULATION_CATCH_UP_FRAMES);
+
+        while (emulationAccumulator >= emulationFrameTicks) {
+            gba.tick();
+            emulationAccumulator -= emulationFrameTicks;
+        }
 
         size_t soundSize = 0;
         uint16_t* sound = gba.dequeSound(&soundSize);
@@ -630,6 +668,11 @@ int main(int argc, char* argv[])
                 std::cerr << "SDL_QueueAudio failed: " << SDL_GetError() << '\n';
                 running = false;
             }
+        }
+        if (!audioPlaybackStarted &&
+            SDL_GetQueuedAudioSize(audioDevice) >= TARGET_QUEUED_AUDIO_SIZE) {
+            SDL_PauseAudioDevice(audioDevice, 0);
+            audioPlaybackStarted = true;
         }
 
         if (SDL_UpdateTexture(
@@ -645,9 +688,13 @@ int main(int argc, char* argv[])
         SDL_RenderCopy(renderer, texture, nullptr, nullptr);
         SDL_RenderPresent(renderer);
 
-        while (SDL_GetAudioDeviceStatus(audioDevice) == SDL_AUDIO_PLAYING &&
-               SDL_GetQueuedAudioSize(audioDevice) > TARGET_QUEUED_AUDIO_SIZE) {
-            SDL_Delay(1);
+        if (!rendererUsesVsync && emulationAccumulator < emulationFrameTicks) {
+            const double remainingMilliseconds =
+                (emulationFrameTicks - emulationAccumulator) * 1000.0 /
+                static_cast<double>(performanceFrequency);
+            if (remainingMilliseconds >= 1.0) {
+                SDL_Delay(static_cast<Uint32>(remainingMilliseconds));
+            }
         }
     }
 
