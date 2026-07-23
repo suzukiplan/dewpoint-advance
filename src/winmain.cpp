@@ -54,7 +54,11 @@ constexpr DWORD AUDIO_BYTES_PER_SAMPLE = sizeof(int16_t);
 constexpr DWORD AUDIO_FRAME_BYTES = AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE;
 constexpr DWORD AUDIO_BUFFER_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES;
 constexpr DWORD AUDIO_LATENCY_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES / 20;
-constexpr DWORD AUDIO_TARGET_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES * 3 / 50;
+// One GBA frame is 280896 cycles of the 16.78 MHz master clock.
+constexpr double GBA_MASTER_CLOCK_HZ = 16777216.0;
+constexpr double GBA_CYCLES_PER_FRAME = 280896.0;
+constexpr double GBA_FRAME_RATE = GBA_MASTER_CLOCK_HZ / GBA_CYCLES_PER_FRAME;
+constexpr int MAX_EMULATION_CATCH_UP_FRAMES = 4;
 
 std::mutex logMutex;
 std::string logPath;
@@ -867,17 +871,6 @@ class DirectSoundOutput
         return true;
     }
 
-    bool throttle()
-    {
-        while (playing && bufferedBytes > AUDIO_TARGET_BYTES) {
-            Sleep(1);
-            if (!updatePlayback()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     void shutdown()
     {
         if (buffer) {
@@ -1295,6 +1288,24 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         });
 
     int exitCode = 0;
+    LARGE_INTEGER performanceFrequency{};
+    LARGE_INTEGER previousPerformanceCounter{};
+    if (!QueryPerformanceFrequency(&performanceFrequency) ||
+        !QueryPerformanceCounter(&previousPerformanceCounter)) {
+        writeLog("Failed to initialize the high-resolution performance counter");
+        reportError("Failed to initialize the high-resolution timer. See log.txt for details.");
+        audio.shutdown();
+        renderer.shutdown();
+        DestroyWindow(window);
+        activeWindow = nullptr;
+        UnregisterClassW(WINDOW_CLASS_NAME, instance);
+        return 1;
+    }
+    const double emulationFrameTicks =
+        static_cast<double>(performanceFrequency.QuadPart) / GBA_FRAME_RATE;
+    // Present the nearest emulated frame at each VSync instead of immediately
+    // repeating the first frame on displays whose refresh rate is just above 59.73 Hz.
+    double emulationAccumulator = emulationFrameTicks * 1.5;
     while (windowState.running) {
         MSG message{};
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
@@ -1331,17 +1342,31 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             break;
         }
         if (windowState.paused) {
+            QueryPerformanceCounter(&previousPerformanceCounter);
             Sleep(10);
             continue;
         }
 
-        gba.tick();
+        LARGE_INTEGER performanceCounter{};
+        QueryPerformanceCounter(&performanceCounter);
+        const double elapsedTicks =
+            static_cast<double>(
+                performanceCounter.QuadPart - previousPerformanceCounter.QuadPart);
+        previousPerformanceCounter = performanceCounter;
+        emulationAccumulator = std::min(
+            emulationAccumulator + elapsedTicks,
+            emulationFrameTicks * MAX_EMULATION_CATCH_UP_FRAMES);
+
+        while (emulationAccumulator >= emulationFrameTicks) {
+            gba.tick();
+            emulationAccumulator -= emulationFrameTicks;
+        }
+
         size_t soundSize = 0;
         uint16_t* sound = gba.dequeSound(&soundSize);
         if (soundSize > std::numeric_limits<DWORD>::max() ||
             !audio.queue(sound, static_cast<DWORD>(soundSize)) ||
-            !renderer.render(gba.getVram()) ||
-            !audio.throttle()) {
+            !renderer.render(gba.getVram())) {
             windowState.running = false;
             exitCode = 1;
         }
