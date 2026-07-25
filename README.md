@@ -140,6 +140,7 @@ The keyboard mappings are as follows:
 | `dpa_get_app_version` | Get the application version (`AppVersion`) as a string |
 | `dpa_button_a` | Character code for the A button (PC: `'X'`, XB/SW: `'A'`, PS: `'X'`) |
 | `dpa_button_b` | Character code for the B button (PC: `'Z'`, XB/SW: `'B'`, PS: `'O'`) |
+| `dpa_gamepad_get` | Get the connected gamepad type |
 | `dpa_achievement_unlock` | Unlock an Achievement |
 | `dpa_leaderboard_send` | Submit a score |
 | `dpa_leaderboard_ready` | Check whether entries can be retrieved from a Leaderboard |
@@ -155,6 +156,11 @@ The keyboard mappings are as follows:
 | `dpa_fullscreen_set` | Switch between fullscreen and windowed modes |
 | `dpa_fullscreen_get` | Get the fullscreen/windowed mode state |
 | `dpa_exit` | Terminate the process (hangs on physical hardware) |
+
+`dpa_gamepad_get` returns `DpaGamepadPC` when no supported gamepad is connected, or
+`DpaGamepadXBox`, `DpaGamepadPS`, or `DpaGamepadSW` for a connected Xbox,
+PlayStation, or Nintendo Switch controller, respectively. On environments where
+Dewpoint Advance is unavailable, it returns `DpaGamepadSW`.
 
 For detailed specifications, check the implementation in [./sdk/dpa.h](./sdk/dpa.h).
 

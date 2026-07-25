@@ -33,6 +33,13 @@ typedef struct {
     char name[16];  // 名前 (注意: ASCII コード以外は '?' になる, 16文字以上は省略される)
 } LeaderboardEntry;
 
+typedef enum {
+    DpaGamepadPC,   // PCキーボード
+    DpaGamepadXBox, // XBOX
+    DpaGamepadPS,   // PlayStation
+    DpaGamepadSW,   // Nintendo Switch
+} DpaGamepad;
+
 /**
  * @brief Dewpoint Advance SDK が利用可能かチェックする
  * @return 0: 利用不可, not 0; 利用可
@@ -161,3 +168,9 @@ char dpa_button_a(void);
  * @return 'Z': ゲームパッド未接続, 'B': XBOX or Switch, 'O': PlayStation
  */
 char dpa_button_b(void);
+
+/**
+ * @brief ゲームパッド種別を取得
+ * @return DpaGamepad* (DPAが利用できない環境ではDpaGamepadSW)
+ */
+DpaGamepad dpa_gamepad_get(void);

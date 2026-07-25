@@ -139,6 +139,7 @@ Windows ランタイムは Direct3D 9 と DirectSound 8 を使用し、SDL2 に�
 | `dpa_get_app_version` | アプリバージョン（AppVersion）の文字列を取得 |
 | `dpa_button_a` | Aボタンの文字コード (PC: `'X'`, XB/SW: `'A'`, PS: `'X'`) |
 | `dpa_button_b` | Bボタンの文字コード (PC: `'Z'`, XB/SW: `'B'`, PS: `'O'`) |
+| `dpa_gamepad_get` | 接続されているゲームパッド種別を取得 |
 | `dpa_achievement_unlock` | アチーブメントをアンロック |
 | `dpa_leaderboard_send` | スコアを送信 |
 | `dpa_leaderboard_ready` | リーダーボードからエントリが取得可能か確認 |
@@ -154,6 +155,10 @@ Windows ランタイムは Direct3D 9 と DirectSound 8 を使用し、SDL2 に�
 | `dpa_fullscreen_set` | フルスクリーン / ウィンドウの切り替え|
 | `dpa_fullscreen_get` | フルスクリーン / ウィンドウの状態取得|
 | `dpa_exit` | プロセス停止（実機ではハングアップ）|
+
+`dpa_gamepad_get` は対応ゲームパッドが未接続の場合は `DpaGamepadPC`、接続されている場合は
+Xbox、PlayStation、Nintendo Switch の種別に応じて `DpaGamepadXBox`、`DpaGamepadPS`、
+`DpaGamepadSW` を返します。Dewpoint Advance が利用できない環境では `DpaGamepadSW` を返します。
 
 詳細な仕様は [./sdk/dpa.h](./sdk/dpa.h) の実装をチェックしてください。
 

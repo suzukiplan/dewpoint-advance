@@ -627,14 +627,16 @@ int main(int argc, char* argv[])
         }
         switch (steamInput.buttonState.type) {
             case CSteam::ControllerType::XBOX:
+                dewpoint.setGamepadType(DewpointRuntime::GamepadType::Xbox);
+                break;
             case CSteam::ControllerType::NintendoSwitch:
-                dewpoint.setButtonInputType(DewpointRuntime::ButtonInputType::XboxOrSwitch);
+                dewpoint.setGamepadType(DewpointRuntime::GamepadType::NintendoSwitch);
                 break;
             case CSteam::ControllerType::PlayStation:
-                dewpoint.setButtonInputType(DewpointRuntime::ButtonInputType::PlayStation);
+                dewpoint.setGamepadType(DewpointRuntime::GamepadType::PlayStation);
                 break;
             case CSteam::ControllerType::NotConnected:
-                dewpoint.setButtonInputType(DewpointRuntime::ButtonInputType::PCKeyboard);
+                dewpoint.setGamepadType(DewpointRuntime::GamepadType::PCKeyboard);
                 break;
         }
         updateGbaKeyState(&gba.keyState, keyboardState, steamInput.buttonState);

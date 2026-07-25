@@ -47,6 +47,7 @@ enum DpaIndex {
     DpaButtonA,            // [I] Aボタンのボタンテキスト ('A'|'X'|'X')
     DpaButtonB,            // [I] Bボタンのボタンテキスト ('B'|'O'|'Z')
     DpaIndexUgcLimitSize,  // [I/O] UGC データ（圧縮前）の上限サイズ
+    DpaIndexGamepad,       // [I] ゲームパッド種別 (0: PC, 1: XBOX, 2: PS, 3: SW)
 };
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
@@ -219,4 +220,12 @@ char dpa_button_b(void)
         return 'B';
     }
     return _dpa[DpaButtonB] & 0x7F;
+}
+
+DpaGamepad dpa_gamepad_get(void)
+{
+    if (!dpa_is_enabled_internal()) {
+        return DpaGamepadSW;
+    }
+    return _dpa[DpaIndexGamepad];
 }

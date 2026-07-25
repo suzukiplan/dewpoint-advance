@@ -15,10 +15,11 @@
 class DewpointRuntime final : public DewpointBridge
 {
   public:
-    enum class ButtonInputType {
+    enum class GamepadType : uint32_t {
         PCKeyboard,
-        XboxOrSwitch,
+        Xbox,
         PlayStation,
+        NintendoSwitch,
     };
 
     using Logger = std::function<void(const char*)>;
@@ -36,7 +37,7 @@ class DewpointRuntime final : public DewpointBridge
     bool setHighScoreStorageDirectory(const std::string& directory);
 
     void setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter);
-    void setButtonInputType(ButtonInputType type);
+    void setGamepadType(GamepadType type);
     bool takeExitRequest(int* exitCode);
 
     uint32_t readRegister(uint32_t index) override;

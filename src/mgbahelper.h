@@ -36,7 +36,7 @@
 class DewpointBridge
 {
   public:
-    static constexpr uint32_t REGISTER_COUNT = 20;
+    static constexpr uint32_t REGISTER_COUNT = 21;
 
     virtual ~DewpointBridge() = default;
 
