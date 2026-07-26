@@ -1,7 +1,7 @@
 [English](./README.md) / **Japanese**
 ---
 
-# **WIP:** Dewpoint Advance
+# Dewpoint Advance
 
 Dewpoint Advance (DPA) は、**自作の GBA ソフト** を Steam で頒布する目的に特化したエミュレータフロントエンドです。
 
@@ -47,21 +47,6 @@ flowchart
 - GBA、Game Boy および Game Boy Advance は任天堂の日本またはその他地域における登録商標です。ゲーム名に「for XXX」等をつけたい場合は任天堂から許諾を得てください。（商品名には他者/他社の登録商標を無許諾でつけることができないのでご注意ください）
 - Game Boy または Game Boy Advance の BIOS 機能（MP2k等）は使用しないでください。
 - ROM ファイルに Game Boy または Game Boy Advance のヘッダー画像に任天堂が商標権や意匠権を有するデータは配信データ（埋め込み用データ）生成時にゼロ化しています。
-
-## WIP status
-
-- [x] macOS Runtime (macOS + SDL2 で GBA のゲームを動かす)
-- [x] Linux Runtime (Linux + SDL2 で GBA のゲームを動かす)
-- [x] Windows Runtime (Windows + DirectX で GBA のゲームを動かす)
-- [x] SDK: Replay API for GBA (GBA上で利用できるリプレイデータを保持/読み込みできるAPI)
-- [x] SDK: Achievement API for GBA (GBA上で利用できるアチーブメント・アンロックAPI)
-- [x] SDK: Leaderboard API for GBA (GBA上で利用できるリーダーボード送信/受信API)
-- [x] パッケージ作成手順の実装 (Windows)
-- [x] パッケージ作成手順の実装 (macOS)
-- [x] パッケージ作成手順の実装 (Linux)
-- [x] ライセンス精査
-- [x] リポジトリのpublic化
-- [ ] システムテスト: Battle Marine Advance (Windows/macOS/Linux) を Steam で配信
 
 ## How to Use
 

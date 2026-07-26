@@ -1,7 +1,7 @@
 **English** / [Japanese](./README-ja.md)
 ---
 
-# **WIP:** Dewpoint Advance
+# Dewpoint Advance
 
 
 Dewpoint Advance (DPA) is an emulator frontend designed specifically for distributing **homebrew GBA software** on Steam.
@@ -48,21 +48,6 @@ It is an SDK for developers and publishers who want to distribute **newly develo
 - GBA, Game Boy, and Game Boy Advance are registered trademarks of Nintendo in Japan and/or other countries. If you wish to include wording such as "for XXX" in a game title, obtain permission from Nintendo. (Please note that another party's registered trademark cannot be included in a product name without authorization.)
 - Do not use Game Boy or Game Boy Advance BIOS functions (such as MP2k).
 - When distribution data (embedded data) is generated, any data in the Game Boy or Game Boy Advance header image over which Nintendo holds trademark or design rights is zeroed out in the ROM file.
-
-## WIP status
-
-- [x] macOS Runtime (run GBA games using macOS + SDL2)
-- [x] Linux Runtime (run GBA games using Linux + SDL2)
-- [x] Windows Runtime (run GBA games using Windows + DirectX)
-- [x] SDK: Replay API for GBA (API for storing/loading replay data accessible from the GBA)
-- [x] SDK: Achievement API for GBA (Achievement unlock API accessible from the GBA)
-- [x] SDK: Leaderboard API for GBA (Leaderboard send/receive API accessible from the GBA)
-- [x] Implement package creation procedure (Windows)
-- [x] Implement package creation procedure (macOS)
-- [x] Implement package creation procedure (Linux)
-- [x] Review licenses
-- [x] Make the repository public
-- [ ] System test: Distribute Battle Marine Advance on Steam (Windows/macOS/Linux)
 
 ## How to Use
 
