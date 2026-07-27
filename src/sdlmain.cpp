@@ -29,6 +29,7 @@
 #include "steam.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
@@ -72,6 +73,576 @@ constexpr int MAX_EMULATION_CATCH_UP_FRAMES = 4;
 static_assert(
     WINDOW_MIN_WIDTH * WINDOW_ASPECT_HEIGHT == WINDOW_MIN_HEIGHT * WINDOW_ASPECT_WIDTH,
     "Minimum window size must match the window aspect ratio");
+
+using GlBoolean = unsigned char;
+using GlBitfield = unsigned int;
+using GlChar = char;
+using GlEnum = unsigned int;
+using GlFloat = float;
+using GlInt = int;
+using GlSizei = int;
+using GlSizePtr = std::ptrdiff_t;
+using GlUint = unsigned int;
+
+constexpr GlBoolean GL_FALSE_VALUE = 0;
+constexpr GlEnum GL_ARRAY_BUFFER_VALUE = 0x8892;
+constexpr GlEnum GL_COLOR_BUFFER_BIT_VALUE = 0x00004000;
+constexpr GlEnum GL_COMPILE_STATUS_VALUE = 0x8B81;
+constexpr GlEnum GL_FLOAT_VALUE = 0x1406;
+constexpr GlEnum GL_FRAGMENT_SHADER_VALUE = 0x8B30;
+constexpr GlEnum GL_INFO_LOG_LENGTH_VALUE = 0x8B84;
+constexpr GlEnum GL_LINK_STATUS_VALUE = 0x8B82;
+constexpr GlEnum GL_NEAREST_VALUE = 0x2600;
+constexpr GlEnum GL_RGBA_VALUE = 0x1908;
+constexpr GlEnum GL_STATIC_DRAW_VALUE = 0x88E4;
+constexpr GlEnum GL_TEXTURE0_VALUE = 0x84C0;
+constexpr GlEnum GL_TEXTURE_2D_VALUE = 0x0DE1;
+constexpr GlEnum GL_TEXTURE_MAG_FILTER_VALUE = 0x2800;
+constexpr GlEnum GL_TEXTURE_MIN_FILTER_VALUE = 0x2801;
+constexpr GlEnum GL_TEXTURE_WRAP_S_VALUE = 0x2802;
+constexpr GlEnum GL_TEXTURE_WRAP_T_VALUE = 0x2803;
+constexpr GlEnum GL_TRIANGLES_VALUE = 0x0004;
+constexpr GlEnum GL_UNPACK_ALIGNMENT_VALUE = 0x0CF5;
+constexpr GlEnum GL_UNSIGNED_BYTE_VALUE = 0x1401;
+constexpr GlEnum GL_VERTEX_SHADER_VALUE = 0x8B31;
+constexpr GlEnum GL_CLAMP_TO_EDGE_VALUE = 0x812F;
+
+const char* CRT_VERTEX_SHADER = R"GLSL(
+#version 120
+
+attribute vec2 a_position;
+varying vec2 v_texCoord;
+
+void main()
+{
+    gl_Position = vec4(a_position, 0.0, 1.0);
+    v_texCoord = vec2(a_position.x * 0.5 + 0.5, 0.5 - a_position.y * 0.5);
+}
+)GLSL";
+
+// This is an independent implementation of the crt-geom rendering model. It
+// retains the characteristic linear-light Lanczos filtering, luminance-aware
+// scanline beam, aperture mask, display gamma, curved glass and rounded bezel.
+const char* CRT_FRAGMENT_SHADER = R"GLSL(
+#version 120
+
+uniform sampler2D u_texture;
+uniform vec2 u_inputSize;
+uniform vec2 u_outputSize;
+uniform int u_crtEnabled;
+varying vec2 v_texCoord;
+
+const float PI = 3.14159265358979323846;
+const float CRT_GAMMA = 2.1;
+const float DISPLAY_GAMMA = 2.2;
+const float CURVATURE = 0.02;
+const float SCANLINE_WEIGHT = 0.30;
+const float DOT_MASK_STRENGTH = 0.30;
+const vec2 CONTENT_SCALE = vec2(1.0, 1.04);
+
+vec2 warp(vec2 coord)
+{
+    vec2 centered = coord * 2.0 - 1.0;
+    centered = vec2(
+        centered.x * (1.0 + CURVATURE * centered.y * centered.y),
+        centered.y * (1.0 + CURVATURE * centered.x * centered.x));
+    return centered * 0.5 + 0.5;
+}
+
+float roundedScreenMask(vec2 coord)
+{
+    vec2 edgeDistance = abs(coord - vec2(0.5)) - vec2(0.475, 0.4625);
+    float outsideDistance =
+        length(max(edgeDistance, vec2(0.0))) +
+        min(max(edgeDistance.x, edgeDistance.y), 0.0) -
+        0.025;
+    float antialiasWidth = 2.0 / min(u_outputSize.x, u_outputSize.y);
+    return 1.0 - smoothstep(-antialiasWidth, antialiasWidth, outsideDistance);
+}
+
+float lanczos2(float distance)
+{
+    distance = abs(distance);
+    if (distance < 0.00001) {
+        return 1.0;
+    }
+    if (distance >= 2.0) {
+        return 0.0;
+    }
+    float piDistance = PI * distance;
+    return 2.0 * sin(piDistance) * sin(piDistance * 0.5) /
+        (piDistance * piDistance);
+}
+
+vec3 sampleLinear(vec2 texel)
+{
+    vec2 coord = (texel + vec2(0.5)) / u_inputSize;
+    return pow(texture2D(u_texture, coord).rgb, vec3(CRT_GAMMA));
+}
+
+vec3 sampleScanline(vec2 baseTexel, float rowOffset, vec4 coefficients)
+{
+    vec3 color =
+        sampleLinear(baseTexel + vec2(-1.0, rowOffset)) * coefficients.x +
+        sampleLinear(baseTexel + vec2( 0.0, rowOffset)) * coefficients.y +
+        sampleLinear(baseTexel + vec2( 1.0, rowOffset)) * coefficients.z +
+        sampleLinear(baseTexel + vec2( 2.0, rowOffset)) * coefficients.w;
+    return clamp(color, 0.0, 1.0);
+}
+
+vec3 scanlineBeam(float distance, vec3 color)
+{
+    vec3 intensity = sqrt(color);
+    vec3 beamWidth =
+        mix(vec3(SCANLINE_WEIGHT * 0.65), vec3(SCANLINE_WEIGHT * 1.15), intensity);
+    vec3 scaledDistance = vec3(distance) / beamWidth;
+    vec3 peak = mix(vec3(0.95), vec3(1.15), intensity);
+    return peak * exp(-0.5 * scaledDistance * scaledDistance);
+}
+
+void main()
+{
+    if (u_crtEnabled == 0) {
+        gl_FragColor = texture2D(u_texture, v_texCoord);
+        return;
+    }
+
+    vec2 screenCoord = warp(v_texCoord);
+    vec2 coord = (screenCoord - vec2(0.5)) * CONTENT_SCALE + vec2(0.5);
+    if (coord.x < 0.0 || coord.x > 1.0 ||
+        coord.y < 0.0 || coord.y > 1.0) {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+
+    vec2 texelPosition = coord * u_inputSize - vec2(0.5);
+    vec2 baseTexel = floor(texelPosition);
+    vec2 subTexel = fract(texelPosition);
+
+    vec4 coefficients = vec4(
+        lanczos2(1.0 + subTexel.x),
+        lanczos2(subTexel.x),
+        lanczos2(1.0 - subTexel.x),
+        lanczos2(2.0 - subTexel.x));
+    coefficients /= dot(coefficients, vec4(1.0));
+
+    vec3 currentLine = sampleScanline(baseTexel, 0.0, coefficients);
+    vec3 nextLine = sampleScanline(baseTexel, 1.0, coefficients);
+
+    // Three beam samples per output pixel keep scanlines stable during
+    // non-integer scaling and mirror crt-geom's oversampling behavior.
+    float footprint = u_inputSize.y / u_outputSize.y;
+    float sampleOffset = footprint / 3.0;
+    vec3 currentWeight =
+        (scanlineBeam(abs(subTexel.y - sampleOffset), currentLine) +
+         scanlineBeam(subTexel.y, currentLine) +
+         scanlineBeam(subTexel.y + sampleOffset, currentLine)) / 3.0;
+    vec3 nextWeight =
+        (scanlineBeam(abs(1.0 - subTexel.y + sampleOffset), nextLine) +
+         scanlineBeam(1.0 - subTexel.y, nextLine) +
+         scanlineBeam(abs(1.0 - subTexel.y - sampleOffset), nextLine)) / 3.0;
+
+    vec3 color = currentLine * currentWeight + nextLine * nextWeight;
+    float maskPhase = mod(floor(gl_FragCoord.x), 2.0);
+    vec3 apertureMask = mix(
+        vec3(1.0, 1.0 - DOT_MASK_STRENGTH, 1.0),
+        vec3(1.0 - DOT_MASK_STRENGTH, 1.0, 1.0 - DOT_MASK_STRENGTH),
+        maskPhase);
+    color *= apertureMask;
+    color = pow(clamp(color, 0.0, 1.0), vec3(1.0 / DISPLAY_GAMMA));
+    color *= roundedScreenMask(screenCoord);
+    gl_FragColor = vec4(color, 1.0);
+}
+)GLSL";
+
+struct GlApi {
+    GlUint (*createShader)(GlEnum);
+    void (*shaderSource)(GlUint, GlSizei, const GlChar* const*, const GlInt*);
+    void (*compileShader)(GlUint);
+    void (*getShaderiv)(GlUint, GlEnum, GlInt*);
+    void (*getShaderInfoLog)(GlUint, GlSizei, GlSizei*, GlChar*);
+    void (*deleteShader)(GlUint);
+    GlUint (*createProgram)();
+    void (*attachShader)(GlUint, GlUint);
+    void (*linkProgram)(GlUint);
+    void (*getProgramiv)(GlUint, GlEnum, GlInt*);
+    void (*getProgramInfoLog)(GlUint, GlSizei, GlSizei*, GlChar*);
+    void (*deleteProgram)(GlUint);
+    void (*useProgram)(GlUint);
+    GlInt (*getAttribLocation)(GlUint, const GlChar*);
+    GlInt (*getUniformLocation)(GlUint, const GlChar*);
+    void (*uniform1i)(GlInt, GlInt);
+    void (*uniform2f)(GlInt, GlFloat, GlFloat);
+    void (*genTextures)(GlSizei, GlUint*);
+    void (*bindTexture)(GlEnum, GlUint);
+    void (*texParameteri)(GlEnum, GlEnum, GlInt);
+    void (*texImage2D)(
+        GlEnum,
+        GlInt,
+        GlInt,
+        GlSizei,
+        GlSizei,
+        GlInt,
+        GlEnum,
+        GlEnum,
+        const void*);
+    void (*texSubImage2D)(
+        GlEnum,
+        GlInt,
+        GlInt,
+        GlInt,
+        GlSizei,
+        GlSizei,
+        GlEnum,
+        GlEnum,
+        const void*);
+    void (*deleteTextures)(GlSizei, const GlUint*);
+    void (*activeTexture)(GlEnum);
+    void (*pixelStorei)(GlEnum, GlInt);
+    void (*genBuffers)(GlSizei, GlUint*);
+    void (*bindBuffer)(GlEnum, GlUint);
+    void (*bufferData)(GlEnum, GlSizePtr, const void*, GlEnum);
+    void (*deleteBuffers)(GlSizei, const GlUint*);
+    void (*vertexAttribPointer)(GlUint, GlInt, GlEnum, GlBoolean, GlSizei, const void*);
+    void (*enableVertexAttribArray)(GlUint);
+    void (*disableVertexAttribArray)(GlUint);
+    void (*drawArrays)(GlEnum, GlInt, GlSizei);
+    void (*viewport)(GlInt, GlInt, GlSizei, GlSizei);
+    void (*clearColor)(GlFloat, GlFloat, GlFloat, GlFloat);
+    void (*clear)(GlBitfield);
+
+    template <typename Function>
+    bool load(Function* function, const char* name)
+    {
+        *function = reinterpret_cast<Function>(SDL_GL_GetProcAddress(name));
+        if (!*function) {
+            std::cerr << "Failed to load OpenGL function " << name << ": "
+                      << SDL_GetError() << '\n';
+            return false;
+        }
+        return true;
+    }
+
+    bool load()
+    {
+        return load(&createShader, "glCreateShader") &&
+               load(&shaderSource, "glShaderSource") &&
+               load(&compileShader, "glCompileShader") &&
+               load(&getShaderiv, "glGetShaderiv") &&
+               load(&getShaderInfoLog, "glGetShaderInfoLog") &&
+               load(&deleteShader, "glDeleteShader") &&
+               load(&createProgram, "glCreateProgram") &&
+               load(&attachShader, "glAttachShader") &&
+               load(&linkProgram, "glLinkProgram") &&
+               load(&getProgramiv, "glGetProgramiv") &&
+               load(&getProgramInfoLog, "glGetProgramInfoLog") &&
+               load(&deleteProgram, "glDeleteProgram") &&
+               load(&useProgram, "glUseProgram") &&
+               load(&getAttribLocation, "glGetAttribLocation") &&
+               load(&getUniformLocation, "glGetUniformLocation") &&
+               load(&uniform1i, "glUniform1i") &&
+               load(&uniform2f, "glUniform2f") &&
+               load(&genTextures, "glGenTextures") &&
+               load(&bindTexture, "glBindTexture") &&
+               load(&texParameteri, "glTexParameteri") &&
+               load(&texImage2D, "glTexImage2D") &&
+               load(&texSubImage2D, "glTexSubImage2D") &&
+               load(&deleteTextures, "glDeleteTextures") &&
+               load(&activeTexture, "glActiveTexture") &&
+               load(&pixelStorei, "glPixelStorei") &&
+               load(&genBuffers, "glGenBuffers") &&
+               load(&bindBuffer, "glBindBuffer") &&
+               load(&bufferData, "glBufferData") &&
+               load(&deleteBuffers, "glDeleteBuffers") &&
+               load(&vertexAttribPointer, "glVertexAttribPointer") &&
+               load(&enableVertexAttribArray, "glEnableVertexAttribArray") &&
+               load(&disableVertexAttribArray, "glDisableVertexAttribArray") &&
+               load(&drawArrays, "glDrawArrays") &&
+               load(&viewport, "glViewport") &&
+               load(&clearColor, "glClearColor") &&
+               load(&clear, "glClear");
+    }
+};
+
+class CrtRenderer
+{
+  private:
+    SDL_Window* window;
+    SDL_GLContext context;
+    GlApi gl;
+    GlUint program;
+    GlUint texture;
+    GlUint vertexBuffer;
+    GlInt positionLocation;
+    GlInt inputSizeLocation;
+    GlInt outputSizeLocation;
+    GlInt crtEnabledLocation;
+    int inputWidth;
+    int inputHeight;
+    bool vsyncEnabled;
+
+    bool compileShader(GlEnum type, const char* source, GlUint* shader)
+    {
+        *shader = gl.createShader(type);
+        if (!*shader) {
+            std::cerr << "Failed to create CRT shader\n";
+            return false;
+        }
+
+        gl.shaderSource(*shader, 1, &source, nullptr);
+        gl.compileShader(*shader);
+
+        GlInt compiled = 0;
+        gl.getShaderiv(*shader, GL_COMPILE_STATUS_VALUE, &compiled);
+        if (compiled) {
+            return true;
+        }
+
+        GlInt logLength = 0;
+        gl.getShaderiv(*shader, GL_INFO_LOG_LENGTH_VALUE, &logLength);
+        std::vector<GlChar> log(static_cast<size_t>(std::max(logLength, 1)));
+        gl.getShaderInfoLog(*shader, static_cast<GlSizei>(log.size()), nullptr, log.data());
+        std::cerr << "Failed to compile CRT shader: " << log.data() << '\n';
+        gl.deleteShader(*shader);
+        *shader = 0;
+        return false;
+    }
+
+    bool createProgram()
+    {
+        GlUint vertexShader = 0;
+        GlUint fragmentShader = 0;
+        if (!compileShader(GL_VERTEX_SHADER_VALUE, CRT_VERTEX_SHADER, &vertexShader) ||
+            !compileShader(GL_FRAGMENT_SHADER_VALUE, CRT_FRAGMENT_SHADER, &fragmentShader)) {
+            if (vertexShader) {
+                gl.deleteShader(vertexShader);
+            }
+            return false;
+        }
+
+        program = gl.createProgram();
+        if (!program) {
+            std::cerr << "Failed to create CRT shader program\n";
+            gl.deleteShader(fragmentShader);
+            gl.deleteShader(vertexShader);
+            return false;
+        }
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        gl.deleteShader(fragmentShader);
+        gl.deleteShader(vertexShader);
+
+        GlInt linked = 0;
+        gl.getProgramiv(program, GL_LINK_STATUS_VALUE, &linked);
+        if (!linked) {
+            GlInt logLength = 0;
+            gl.getProgramiv(program, GL_INFO_LOG_LENGTH_VALUE, &logLength);
+            std::vector<GlChar> log(static_cast<size_t>(std::max(logLength, 1)));
+            gl.getProgramInfoLog(
+                program,
+                static_cast<GlSizei>(log.size()),
+                nullptr,
+                log.data());
+            std::cerr << "Failed to link CRT shader: " << log.data() << '\n';
+            return false;
+        }
+
+        positionLocation = gl.getAttribLocation(program, "a_position");
+        const GlInt textureLocation = gl.getUniformLocation(program, "u_texture");
+        inputSizeLocation = gl.getUniformLocation(program, "u_inputSize");
+        outputSizeLocation = gl.getUniformLocation(program, "u_outputSize");
+        crtEnabledLocation = gl.getUniformLocation(program, "u_crtEnabled");
+        if (positionLocation < 0 || textureLocation < 0 ||
+            inputSizeLocation < 0 || outputSizeLocation < 0 || crtEnabledLocation < 0) {
+            std::cerr << "Failed to locate CRT shader inputs\n";
+            return false;
+        }
+
+        gl.useProgram(program);
+        gl.uniform1i(textureLocation, 0);
+        return true;
+    }
+
+  public:
+    CrtRenderer()
+        : window(nullptr), context(nullptr), gl{}, program(0), texture(0), vertexBuffer(0), positionLocation(-1), inputSizeLocation(-1), outputSizeLocation(-1), crtEnabledLocation(-1), inputWidth(0), inputHeight(0), vsyncEnabled(false)
+    {
+    }
+
+    ~CrtRenderer()
+    {
+        shutdown();
+    }
+
+    bool initialize(SDL_Window* targetWindow, int width, int height, bool crtEnabled)
+    {
+        window = targetWindow;
+        inputWidth = width;
+        inputHeight = height;
+        context = SDL_GL_CreateContext(window);
+        if (!context) {
+            std::cerr << "SDL_GL_CreateContext failed: " << SDL_GetError() << '\n';
+            return false;
+        }
+        if (SDL_GL_MakeCurrent(window, context) != 0) {
+            std::cerr << "SDL_GL_MakeCurrent failed: " << SDL_GetError() << '\n';
+            return false;
+        }
+
+        if (SDL_GL_SetSwapInterval(1) == 0) {
+            vsyncEnabled = true;
+        } else {
+            std::cerr << "Failed to enable OpenGL VSync; using frame pacing fallback: "
+                      << SDL_GetError() << '\n';
+            SDL_GL_SetSwapInterval(0);
+        }
+
+        if (!gl.load() || !createProgram()) {
+            return false;
+        }
+        gl.uniform1i(crtEnabledLocation, crtEnabled ? 1 : 0);
+
+        gl.activeTexture(GL_TEXTURE0_VALUE);
+        gl.genTextures(1, &texture);
+        gl.bindTexture(GL_TEXTURE_2D_VALUE, texture);
+        gl.texParameteri(
+            GL_TEXTURE_2D_VALUE,
+            GL_TEXTURE_MIN_FILTER_VALUE,
+            static_cast<GlInt>(GL_NEAREST_VALUE));
+        gl.texParameteri(
+            GL_TEXTURE_2D_VALUE,
+            GL_TEXTURE_MAG_FILTER_VALUE,
+            static_cast<GlInt>(GL_NEAREST_VALUE));
+        gl.texParameteri(
+            GL_TEXTURE_2D_VALUE,
+            GL_TEXTURE_WRAP_S_VALUE,
+            static_cast<GlInt>(GL_CLAMP_TO_EDGE_VALUE));
+        gl.texParameteri(
+            GL_TEXTURE_2D_VALUE,
+            GL_TEXTURE_WRAP_T_VALUE,
+            static_cast<GlInt>(GL_CLAMP_TO_EDGE_VALUE));
+        gl.pixelStorei(GL_UNPACK_ALIGNMENT_VALUE, 1);
+        gl.texImage2D(
+            GL_TEXTURE_2D_VALUE,
+            0,
+            static_cast<GlInt>(GL_RGBA_VALUE),
+            inputWidth,
+            inputHeight,
+            0,
+            GL_RGBA_VALUE,
+            GL_UNSIGNED_BYTE_VALUE,
+            nullptr);
+
+        const GlFloat vertices[] = {
+            -1.0F,
+            -1.0F,
+            1.0F,
+            -1.0F,
+            -1.0F,
+            1.0F,
+            -1.0F,
+            1.0F,
+            1.0F,
+            -1.0F,
+            1.0F,
+            1.0F,
+        };
+        gl.genBuffers(1, &vertexBuffer);
+        gl.bindBuffer(GL_ARRAY_BUFFER_VALUE, vertexBuffer);
+        gl.bufferData(
+            GL_ARRAY_BUFFER_VALUE,
+            static_cast<GlSizePtr>(sizeof(vertices)),
+            vertices,
+            GL_STATIC_DRAW_VALUE);
+        return true;
+    }
+
+    bool usesVsync() const
+    {
+        return vsyncEnabled;
+    }
+
+    void present(const void* pixels)
+    {
+        int drawableWidth = 0;
+        int drawableHeight = 0;
+        SDL_GL_GetDrawableSize(window, &drawableWidth, &drawableHeight);
+        if (drawableWidth <= 0 || drawableHeight <= 0) {
+            return;
+        }
+
+        int viewportWidth = drawableWidth;
+        int viewportHeight =
+            viewportWidth * WINDOW_ASPECT_HEIGHT / WINDOW_ASPECT_WIDTH;
+        if (viewportHeight > drawableHeight) {
+            viewportHeight = drawableHeight;
+            viewportWidth =
+                viewportHeight * WINDOW_ASPECT_WIDTH / WINDOW_ASPECT_HEIGHT;
+        }
+        const int viewportX = (drawableWidth - viewportWidth) / 2;
+        const int viewportY = (drawableHeight - viewportHeight) / 2;
+
+        gl.clearColor(0.0F, 0.0F, 0.0F, 1.0F);
+        gl.clear(GL_COLOR_BUFFER_BIT_VALUE);
+        gl.viewport(viewportX, viewportY, viewportWidth, viewportHeight);
+        gl.useProgram(program);
+        gl.activeTexture(GL_TEXTURE0_VALUE);
+        gl.bindTexture(GL_TEXTURE_2D_VALUE, texture);
+        gl.texSubImage2D(
+            GL_TEXTURE_2D_VALUE,
+            0,
+            0,
+            0,
+            inputWidth,
+            inputHeight,
+            GL_RGBA_VALUE,
+            GL_UNSIGNED_BYTE_VALUE,
+            pixels);
+        gl.uniform2f(
+            inputSizeLocation,
+            static_cast<GlFloat>(inputWidth),
+            static_cast<GlFloat>(inputHeight));
+        gl.uniform2f(
+            outputSizeLocation,
+            static_cast<GlFloat>(viewportWidth),
+            static_cast<GlFloat>(viewportHeight));
+        gl.bindBuffer(GL_ARRAY_BUFFER_VALUE, vertexBuffer);
+        gl.vertexAttribPointer(
+            static_cast<GlUint>(positionLocation),
+            2,
+            GL_FLOAT_VALUE,
+            GL_FALSE_VALUE,
+            0,
+            nullptr);
+        gl.enableVertexAttribArray(static_cast<GlUint>(positionLocation));
+        gl.drawArrays(GL_TRIANGLES_VALUE, 0, 6);
+        gl.disableVertexAttribArray(static_cast<GlUint>(positionLocation));
+        SDL_GL_SwapWindow(window);
+    }
+
+    void shutdown()
+    {
+        if (!context) {
+            return;
+        }
+        SDL_GL_MakeCurrent(window, context);
+        if (vertexBuffer && gl.deleteBuffers) {
+            gl.deleteBuffers(1, &vertexBuffer);
+            vertexBuffer = 0;
+        }
+        if (texture && gl.deleteTextures) {
+            gl.deleteTextures(1, &texture);
+            texture = 0;
+        }
+        if (program && gl.deleteProgram) {
+            gl.deleteProgram(program);
+            program = 0;
+        }
+        SDL_GL_DeleteContext(context);
+        context = nullptr;
+    }
+};
 
 struct WindowConfig {
     int32_t fullscreen;
@@ -297,7 +868,8 @@ void updateCursorVisibility(SDL_Window* window)
 
 void printUsage(const char* executable)
 {
-    std::cerr << "Usage: " << executable << " [-s <save.dat>] [-c <config.dat>] [rom.gba]\n";
+    std::cerr << "Usage: " << executable
+              << " [-s <save.dat>] [-c <config.dat>] [-f <crt|no>] [rom.gba]\n";
 }
 
 bool getApplicationInstallDirectory(std::string* installDirectory)
@@ -391,9 +963,10 @@ int main(int argc, char* argv[])
     std::string configPath = "config.dat";
     bool usesDefaultSramPath = true;
     bool usesDefaultConfigPath = true;
+    bool crtFilterEnabled = false;
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
-        if (argument == "-s" || argument == "-c") {
+        if (argument == "-s" || argument == "-c" || argument == "-f") {
             if (++i >= argc) {
                 printUsage(argv[0]);
                 return 1;
@@ -402,8 +975,21 @@ int main(int argc, char* argv[])
                 sramPath = argv[i];
                 usesDefaultSramPath = false;
             } else {
-                configPath = argv[i];
-                usesDefaultConfigPath = false;
+                if (argument == "-c") {
+                    configPath = argv[i];
+                    usesDefaultConfigPath = false;
+                } else {
+                    const std::string filter = argv[i];
+                    if (filter == "crt") {
+                        crtFilterEnabled = true;
+                    } else if (filter == "no") {
+                        crtFilterEnabled = false;
+                    } else {
+                        std::cerr << "Unknown video filter: " << filter << '\n';
+                        printUsage(argv[0]);
+                        return 1;
+                    }
+                }
             }
         } else if (!romPath.empty()) {
             printUsage(argv[0]);
@@ -509,14 +1095,17 @@ int main(int argc, char* argv[])
     int windowedX = config.x;
     int windowedY = config.y;
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_Window* window = SDL_CreateWindow(
         APP_NAME,
         windowedX,
         windowedY,
         windowedWidth,
         windowedHeight,
-        SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
+        SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
     if (!window) {
         std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
         return 1;
@@ -560,38 +1149,19 @@ int main(int argc, char* argv[])
         }
     };
 
-    SDL_Renderer* renderer =
-        SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    const bool rendererUsesVsync = renderer != nullptr;
-    if (!renderer) {
-        std::cerr << "Failed to create a VSync renderer; falling back to an unsynchronized renderer: "
-                  << SDL_GetError() << '\n';
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-        if (!renderer) {
-            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-        }
-    }
-    if (!renderer) {
-        std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << '\n';
+    CrtRenderer renderer;
+    if (!renderer.initialize(
+            window,
+            gba.getVramWidth(),
+            gba.getVramHeight(),
+            crtFilterEnabled)) {
+        std::cerr << "Failed to initialize CRT renderer\n";
         saveConfig();
+        renderer.shutdown();
         SDL_DestroyWindow(window);
         return 1;
     }
-    SDL_RenderSetLogicalSize(renderer, gba.getVramWidth(), gba.getVramHeight());
-
-    SDL_Texture* texture = SDL_CreateTexture(
-        renderer,
-        SDL_PIXELFORMAT_ABGR8888,
-        SDL_TEXTUREACCESS_STREAMING,
-        gba.getVramWidth(),
-        gba.getVramHeight());
-    if (!texture) {
-        std::cerr << "SDL_CreateTexture failed: " << SDL_GetError() << '\n';
-        saveConfig();
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        return 1;
-    }
+    const bool rendererUsesVsync = renderer.usesVsync();
 
     SDL_AudioSpec desired{};
     desired.freq = AUDIO_FREQUENCY;
@@ -602,8 +1172,7 @@ int main(int argc, char* argv[])
     if (!audioDevice) {
         std::cerr << "SDL_OpenAudioDevice failed: " << SDL_GetError() << '\n';
         saveConfig();
-        SDL_DestroyTexture(texture);
-        SDL_DestroyRenderer(renderer);
+        renderer.shutdown();
         SDL_DestroyWindow(window);
         return 1;
     }
@@ -711,7 +1280,6 @@ int main(int argc, char* argv[])
         }
         updateGbaKeyState(&gba.keyState, keyboardState, steamInput.buttonState);
         if (dewpoint.takeExitRequest(&exitCode)) {
-            running = false;
             break;
         }
         if (paused) {
@@ -747,18 +1315,7 @@ int main(int argc, char* argv[])
             audioPlaybackStarted = true;
         }
 
-        if (SDL_UpdateTexture(
-                texture,
-                nullptr,
-                gba.getVram(),
-                gba.getVramWidth() * static_cast<int>(sizeof(uint32_t))) != 0) {
-            std::cerr << "SDL_UpdateTexture failed: " << SDL_GetError() << '\n';
-            running = false;
-        }
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-        SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-        SDL_RenderPresent(renderer);
+        renderer.present(gba.getVram());
 
         if (!rendererUsesVsync && emulationAccumulator < emulationFrameTicks) {
             const double remainingMilliseconds =
@@ -773,8 +1330,7 @@ int main(int argc, char* argv[])
     SDL_PauseAudioDevice(audioDevice, 1);
     SDL_CloseAudioDevice(audioDevice);
     saveConfig();
-    SDL_DestroyTexture(texture);
-    SDL_DestroyRenderer(renderer);
+    renderer.shutdown();
     SDL_DestroyWindow(window);
 
     return exitCode;
