@@ -21,6 +21,7 @@
 #include <Windows.h>
 #include <ShlObj.h>
 #include <d3d9.h>
+#include <d3dcompiler.h>
 #include <mmsystem.h>
 #include <dsound.h>
 
@@ -64,6 +65,130 @@ constexpr double GBA_MASTER_CLOCK_HZ = 16777216.0;
 constexpr double GBA_CYCLES_PER_FRAME = 280896.0;
 constexpr double GBA_FRAME_RATE = GBA_MASTER_CLOCK_HZ / GBA_CYCLES_PER_FRAME;
 constexpr int MAX_EMULATION_CATCH_UP_FRAMES = 4;
+
+const char* CRT_PIXEL_SHADER = R"HLSL(
+sampler2D sourceTexture : register(s0);
+float4 dimensions : register(c0);
+
+static const float PI = 3.14159265358979323846;
+static const float CRT_GAMMA = 2.1;
+static const float DISPLAY_GAMMA = 2.2;
+static const float CURVATURE = 0.02;
+static const float SCANLINE_WEIGHT = 0.30;
+static const float DOT_MASK_STRENGTH = 0.30;
+static const float2 CONTENT_SCALE = float2(1.0, 1.04);
+
+float2 warp(float2 coord)
+{
+    float2 centered = coord * 2.0 - 1.0;
+    centered = float2(
+        centered.x * (1.0 + CURVATURE * centered.y * centered.y),
+        centered.y * (1.0 + CURVATURE * centered.x * centered.x));
+    return centered * 0.5 + 0.5;
+}
+
+float roundedScreenMask(float2 coord)
+{
+    float2 edgeDistance = abs(coord - float2(0.5, 0.5)) - float2(0.475, 0.4625);
+    float outsideDistance =
+        length(max(edgeDistance, float2(0.0, 0.0))) +
+        min(max(edgeDistance.x, edgeDistance.y), 0.0) -
+        0.025;
+    float antialiasWidth = 2.0 / min(dimensions.z, dimensions.w);
+    return 1.0 - smoothstep(-antialiasWidth, antialiasWidth, outsideDistance);
+}
+
+float lanczos2(float distance)
+{
+    distance = abs(distance);
+    if (distance < 0.00001) {
+        return 1.0;
+    }
+    if (distance >= 2.0) {
+        return 0.0;
+    }
+    float piDistance = PI * distance;
+    return 2.0 * sin(piDistance) * sin(piDistance * 0.5) /
+        (piDistance * piDistance);
+}
+
+float3 sampleLinear(float2 texel)
+{
+    float2 coord = (texel + float2(0.5, 0.5)) / dimensions.xy;
+    return pow(tex2D(sourceTexture, coord).rgb, float3(CRT_GAMMA, CRT_GAMMA, CRT_GAMMA));
+}
+
+float3 sampleScanline(float2 baseTexel, float rowOffset, float4 coefficients)
+{
+    float3 color =
+        sampleLinear(baseTexel + float2(-1.0, rowOffset)) * coefficients.x +
+        sampleLinear(baseTexel + float2( 0.0, rowOffset)) * coefficients.y +
+        sampleLinear(baseTexel + float2( 1.0, rowOffset)) * coefficients.z +
+        sampleLinear(baseTexel + float2( 2.0, rowOffset)) * coefficients.w;
+    return saturate(color);
+}
+
+float3 scanlineBeam(float distance, float3 color)
+{
+    float3 intensity = sqrt(color);
+    float3 beamWidth = lerp(
+        float3(SCANLINE_WEIGHT * 0.65, SCANLINE_WEIGHT * 0.65, SCANLINE_WEIGHT * 0.65),
+        float3(SCANLINE_WEIGHT * 1.15, SCANLINE_WEIGHT * 1.15, SCANLINE_WEIGHT * 1.15),
+        intensity);
+    float3 scaledDistance = distance / beamWidth;
+    float3 peak = lerp(float3(0.95, 0.95, 0.95), float3(1.15, 1.15, 1.15), intensity);
+    return peak * exp(-0.5 * scaledDistance * scaledDistance);
+}
+
+float4 main(float2 texCoord : TEXCOORD0, float2 pixelPosition : VPOS) : COLOR0
+{
+    float2 screenCoord = warp(texCoord);
+    float2 coord = (screenCoord - 0.5) * CONTENT_SCALE + 0.5;
+    if (coord.x < 0.0 || coord.x > 1.0 ||
+        coord.y < 0.0 || coord.y > 1.0) {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    float2 texelPosition = coord * dimensions.xy - 0.5;
+    float2 baseTexel = floor(texelPosition);
+    float2 subTexel = frac(texelPosition);
+    float4 coefficients = float4(
+        lanczos2(1.0 + subTexel.x),
+        lanczos2(subTexel.x),
+        lanczos2(1.0 - subTexel.x),
+        lanczos2(2.0 - subTexel.x));
+    coefficients /= dot(coefficients, float4(1.0, 1.0, 1.0, 1.0));
+
+    float3 currentLine = sampleScanline(baseTexel, 0.0, coefficients);
+    float3 nextLine = sampleScanline(baseTexel, 1.0, coefficients);
+    float footprint = dimensions.y / dimensions.w;
+    float sampleOffset = footprint / 3.0;
+    float3 currentWeight =
+        (scanlineBeam(abs(subTexel.y - sampleOffset), currentLine) +
+         scanlineBeam(subTexel.y, currentLine) +
+         scanlineBeam(subTexel.y + sampleOffset, currentLine)) / 3.0;
+    float3 nextWeight =
+        (scanlineBeam(abs(1.0 - subTexel.y + sampleOffset), nextLine) +
+         scanlineBeam(1.0 - subTexel.y, nextLine) +
+         scanlineBeam(abs(1.0 - subTexel.y - sampleOffset), nextLine)) / 3.0;
+
+    float3 color = currentLine * currentWeight + nextLine * nextWeight;
+    float maskPhase = fmod(floor(pixelPosition.x), 2.0);
+    float3 apertureMask = lerp(
+        float3(1.0, 1.0 - DOT_MASK_STRENGTH, 1.0),
+        float3(1.0 - DOT_MASK_STRENGTH, 1.0, 1.0 - DOT_MASK_STRENGTH),
+        maskPhase);
+    color *= apertureMask;
+    color = pow(
+        saturate(color),
+        float3(
+            1.0 / DISPLAY_GAMMA,
+            1.0 / DISPLAY_GAMMA,
+            1.0 / DISPLAY_GAMMA));
+    color *= roundedScreenMask(screenCoord);
+    return float4(color, 1.0);
+}
+)HLSL";
 
 static_assert(
     WINDOW_MIN_WIDTH * WINDOW_ASPECT_HEIGHT == WINDOW_MIN_HEIGHT * WINDOW_ASPECT_WIDTH,
@@ -412,7 +537,9 @@ class Direct3DRenderer
     IDirect3D9* d3d;
     IDirect3DDevice9* device;
     IDirect3DTexture9* texture;
+    IDirect3DPixelShader9* crtPixelShader;
     D3DPRESENT_PARAMETERS parameters;
+    bool crtEnabled;
     bool resetRequested;
 
     struct Vertex {
@@ -475,6 +602,109 @@ class Direct3DRenderer
         return true;
     }
 
+    bool createCrtPixelShader()
+    {
+        D3DCAPS9 capabilities{};
+        HRESULT result = device->GetDeviceCaps(&capabilities);
+        if (FAILED(result)) {
+            writeLog("IDirect3DDevice9::GetDeviceCaps failed: %08lX", result);
+            return false;
+        }
+        if (capabilities.PixelShaderVersion < D3DPS_VERSION(3, 0)) {
+            writeLog(
+                "The CRT filter requires Pixel Shader 3.0; available version is %u.%u",
+                D3DSHADER_VERSION_MAJOR(capabilities.PixelShaderVersion),
+                D3DSHADER_VERSION_MINOR(capabilities.PixelShaderVersion));
+            return false;
+        }
+
+        // Resolve the compiler at runtime so the normal, unfiltered renderer
+        // does not gain a new DLL dependency. Search System32 explicitly to
+        // prevent an untrusted DLL beside the executable from being loaded.
+        const wchar_t* compilerNames[] = {
+            L"d3dcompiler_47.dll",
+            L"d3dcompiler_46.dll",
+            L"d3dcompiler_43.dll",
+        };
+        wchar_t systemDirectory[MAX_PATH]{};
+        const UINT systemDirectoryLength =
+            GetSystemDirectoryW(systemDirectory, MAX_PATH);
+        if (!systemDirectoryLength) {
+            writeLog("Failed to locate the Windows system directory: %lu", GetLastError());
+            return false;
+        }
+        if (systemDirectoryLength >= MAX_PATH) {
+            writeLog("The Windows system directory path is too long");
+            return false;
+        }
+        std::wstring compilerDirectory(systemDirectory, systemDirectoryLength);
+        if (!compilerDirectory.empty() && compilerDirectory.back() != L'\\') {
+            compilerDirectory += L'\\';
+        }
+
+        HMODULE compilerModule = nullptr;
+        for (const wchar_t* compilerName : compilerNames) {
+            const std::wstring compilerPath = compilerDirectory + compilerName;
+            compilerModule = LoadLibraryW(compilerPath.c_str());
+            if (compilerModule) {
+                break;
+            }
+        }
+        if (!compilerModule) {
+            writeLog("Failed to load a Direct3D shader compiler DLL");
+            return false;
+        }
+
+        using D3DCompileFunction = decltype(&D3DCompile);
+        const auto compile = reinterpret_cast<D3DCompileFunction>(
+            GetProcAddress(compilerModule, "D3DCompile"));
+        if (!compile) {
+            writeLog("Failed to resolve D3DCompile");
+            FreeLibrary(compilerModule);
+            return false;
+        }
+
+        ID3DBlob* bytecode = nullptr;
+        ID3DBlob* errors = nullptr;
+        result = compile(
+            CRT_PIXEL_SHADER,
+            std::strlen(CRT_PIXEL_SHADER),
+            "Dewpoint CRT filter",
+            nullptr,
+            nullptr,
+            "main",
+            "ps_3_0",
+            D3DCOMPILE_OPTIMIZATION_LEVEL3,
+            0,
+            &bytecode,
+            &errors);
+        if (FAILED(result)) {
+            if (errors && errors->GetBufferPointer()) {
+                writeLog(
+                    "Failed to compile the CRT pixel shader: %s",
+                    static_cast<const char*>(errors->GetBufferPointer()));
+            } else {
+                writeLog("D3DCompile failed for the CRT pixel shader: %08lX", result);
+            }
+        } else {
+            result = device->CreatePixelShader(
+                static_cast<const DWORD*>(bytecode->GetBufferPointer()),
+                &crtPixelShader);
+            if (FAILED(result)) {
+                writeLog("IDirect3DDevice9::CreatePixelShader failed: %08lX", result);
+            }
+        }
+
+        if (errors) {
+            errors->Release();
+        }
+        if (bytecode) {
+            bytecode->Release();
+        }
+        FreeLibrary(compilerModule);
+        return SUCCEEDED(result) && crtPixelShader;
+    }
+
     bool resetDevice()
     {
         const HRESULT cooperative = device->TestCooperativeLevel();
@@ -505,15 +735,23 @@ class Direct3DRenderer
 
   public:
     Direct3DRenderer()
-        : window(nullptr), d3d(nullptr), device(nullptr), texture(nullptr), parameters{}, resetRequested(false)
+        : window(nullptr)
+        , d3d(nullptr)
+        , device(nullptr)
+        , texture(nullptr)
+        , crtPixelShader(nullptr)
+        , parameters{}
+        , crtEnabled(false)
+        , resetRequested(false)
     {
     }
 
     ~Direct3DRenderer() { shutdown(); }
 
-    bool initialize(HWND targetWindow)
+    bool initialize(HWND targetWindow, bool enableCrt)
     {
         window = targetWindow;
+        crtEnabled = enableCrt;
         d3d = Direct3DCreate9(D3D_SDK_VERSION);
         if (!d3d) {
             writeLog("Direct3DCreate9 failed");
@@ -557,7 +795,12 @@ class Direct3DRenderer
         if (!createTexture()) {
             return false;
         }
-        writeLog("Direct3D 9 initialized");
+        if (crtEnabled && !createCrtPixelShader()) {
+            return false;
+        }
+        writeLog(
+            "Direct3D 9 initialized with video filter: %s",
+            crtEnabled ? "crt" : "no");
         return true;
     }
 
@@ -626,9 +869,27 @@ class Direct3DRenderer
             device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
             device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
             device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+            device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+            device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
             device->SetTexture(0, texture);
             device->SetFVF(VERTEX_FORMAT);
-            result = device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices, sizeof(Vertex));
+            result = device->SetPixelShader(crtEnabled ? crtPixelShader : nullptr);
+            if (SUCCEEDED(result) && crtEnabled) {
+                const float shaderDimensions[] = {
+                    static_cast<float>(GBA_VRAM_WIDTH),
+                    static_cast<float>(GBA_VRAM_HEIGHT),
+                    width,
+                    height,
+                };
+                result = device->SetPixelShaderConstantF(0, shaderDimensions, 1);
+            }
+            if (SUCCEEDED(result)) {
+                result = device->DrawPrimitiveUP(
+                    D3DPT_TRIANGLESTRIP,
+                    2,
+                    vertices,
+                    sizeof(Vertex));
+            }
             device->EndScene();
         }
         if (FAILED(result)) {
@@ -650,6 +911,10 @@ class Direct3DRenderer
 
     void shutdown()
     {
+        if (crtPixelShader) {
+            crtPixelShader->Release();
+            crtPixelShader = nullptr;
+        }
         if (texture) {
             texture->Release();
             texture = nullptr;
@@ -1333,7 +1598,9 @@ void updateGbaKeyState(
 
 void printUsage(const char* executable)
 {
-    writeLog("Usage: %s [-s <save.dat>] [-c <config.dat>] [rom.gba]", executable);
+    writeLog(
+        "Usage: %s [-s <save.dat>] [-c <config.dat>] [-f <crt|no>] [rom.gba]",
+        executable);
 }
 } // namespace
 
@@ -1353,9 +1620,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     std::string configPath = "config.dat";
     bool usesDefaultSramPath = true;
     bool usesDefaultConfigPath = true;
+    bool crtFilterEnabled = false;
     for (int i = 1; i < __argc; ++i) {
         const std::string argument = __argv[i];
-        if (argument == "-s" || argument == "-c") {
+        if (argument == "-s" || argument == "-c" || argument == "-f") {
             if (++i >= __argc) {
                 printUsage(__argv[0]);
                 return 1;
@@ -1363,9 +1631,20 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             if (argument == "-s") {
                 sramPath = __argv[i];
                 usesDefaultSramPath = false;
-            } else {
+            } else if (argument == "-c") {
                 configPath = __argv[i];
                 usesDefaultConfigPath = false;
+            } else {
+                const std::string filter = __argv[i];
+                if (filter == "crt") {
+                    crtFilterEnabled = true;
+                } else if (filter == "no") {
+                    crtFilterEnabled = false;
+                } else {
+                    writeLog("Unknown video filter: %s", filter.c_str());
+                    printUsage(__argv[0]);
+                    return 1;
+                }
             }
         } else if (!romPath.empty()) {
             printUsage(__argv[0]);
@@ -1479,7 +1758,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     DirectSoundOutput audio;
     windowState.renderer = &renderer;
     windowState.audio = &audio;
-    if (!renderer.initialize(window) || !audio.initialize(window)) {
+    if (!renderer.initialize(window, crtFilterEnabled) || !audio.initialize(window)) {
         reportError("Failed to initialize DirectX. See log.txt for details.");
         renderer.shutdown();
         audio.shutdown();
