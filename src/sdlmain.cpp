@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -54,6 +55,10 @@ extern const size_t game_rom_size;
 namespace
 {
 constexpr int WINDOW_SCALE = 3;
+constexpr int WINDOW_ASPECT_WIDTH = 3;
+constexpr int WINDOW_ASPECT_HEIGHT = 2;
+constexpr int WINDOW_MIN_WIDTH = 240;
+constexpr int WINDOW_MIN_HEIGHT = 160;
 constexpr int AUDIO_FREQUENCY = 44100;
 constexpr int AUDIO_CHANNELS = 2;
 constexpr int AUDIO_SAMPLES = 2048;
@@ -63,6 +68,10 @@ constexpr double GBA_MASTER_CLOCK_HZ = 16777216.0;
 constexpr double GBA_CYCLES_PER_FRAME = 280896.0;
 constexpr double GBA_FRAME_RATE = GBA_MASTER_CLOCK_HZ / GBA_CYCLES_PER_FRAME;
 constexpr int MAX_EMULATION_CATCH_UP_FRAMES = 4;
+
+static_assert(
+    WINDOW_MIN_WIDTH * WINDOW_ASPECT_HEIGHT == WINDOW_MIN_HEIGHT * WINDOW_ASPECT_WIDTH,
+    "Minimum window size must match the window aspect ratio");
 
 struct WindowConfig {
     int32_t fullscreen;
@@ -183,6 +192,33 @@ WindowConfig defaultWindowConfig()
     };
 }
 
+void constrainWindowSize(
+    int requestedWidth,
+    int requestedHeight,
+    int previousWidth,
+    int previousHeight,
+    int* width,
+    int* height)
+{
+    const int64_t widthChange =
+        std::abs(static_cast<int64_t>(requestedWidth) - previousWidth) * WINDOW_ASPECT_HEIGHT;
+    const int64_t heightChange =
+        std::abs(static_cast<int64_t>(requestedHeight) - previousHeight) * WINDOW_ASPECT_WIDTH;
+    const bool resizeFromWidth = widthChange >= heightChange;
+    const int aspectDimension = resizeFromWidth ? WINDOW_ASPECT_WIDTH : WINDOW_ASPECT_HEIGHT;
+    const int requestedDimension = std::max(
+        resizeFromWidth ? requestedWidth : requestedHeight,
+        resizeFromWidth ? WINDOW_MIN_WIDTH : WINDOW_MIN_HEIGHT);
+    const int64_t aspectUnits = std::max<int64_t>(
+        WINDOW_MIN_WIDTH / WINDOW_ASPECT_WIDTH,
+        (static_cast<int64_t>(requestedDimension) + aspectDimension / 2) / aspectDimension);
+    const int64_t constrainedUnits = std::min<int64_t>(
+        aspectUnits,
+        std::numeric_limits<int>::max() / WINDOW_ASPECT_WIDTH);
+    *width = static_cast<int>(constrainedUnits * WINDOW_ASPECT_WIDTH);
+    *height = static_cast<int>(constrainedUnits * WINDOW_ASPECT_HEIGHT);
+}
+
 WindowConfig loadWindowConfig(const std::string& path)
 {
     std::ifstream input(path, std::ios::binary | std::ios::ate);
@@ -206,6 +242,13 @@ WindowConfig loadWindowConfig(const std::string& path)
         std::cerr << "Invalid window configuration: " << path << '\n';
         return defaultWindowConfig();
     }
+    constrainWindowSize(
+        config.width,
+        config.height,
+        config.width,
+        config.height,
+        &config.width,
+        &config.height);
     return config;
 }
 
@@ -478,6 +521,7 @@ int main(int argc, char* argv[])
         std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
         return 1;
     }
+    SDL_SetWindowMinimumSize(window, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
     SDL_GetWindowSize(window, &windowedWidth, &windowedHeight);
     SDL_GetWindowPosition(window, &windowedX, &windowedY);
     if ((!windowModeEnabled || config.fullscreen == -1) &&
@@ -587,10 +631,25 @@ int main(int argc, char* argv[])
                 updateCursorVisibility(window);
                 if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                     keyboardState = {};
-                } else if ((SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) == 0) {
+                } else if (
+                    (SDL_GetWindowFlags(window) &
+                     (SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_MINIMIZED)) == 0) {
                     if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                        windowedWidth = event.window.data1;
-                        windowedHeight = event.window.data2;
+                        int constrainedWidth = 0;
+                        int constrainedHeight = 0;
+                        constrainWindowSize(
+                            event.window.data1,
+                            event.window.data2,
+                            windowedWidth,
+                            windowedHeight,
+                            &constrainedWidth,
+                            &constrainedHeight);
+                        windowedWidth = constrainedWidth;
+                        windowedHeight = constrainedHeight;
+                        if (constrainedWidth != event.window.data1 ||
+                            constrainedHeight != event.window.data2) {
+                            SDL_SetWindowSize(window, constrainedWidth, constrainedHeight);
+                        }
                     } else if (event.window.event == SDL_WINDOWEVENT_MOVED) {
                         windowedX = event.window.data1;
                         windowedY = event.window.data2;
@@ -610,6 +669,17 @@ int main(int argc, char* argv[])
                     SDL_ClearQueuedAudio(audioDevice);
                     audioPlaybackStarted = false;
                     SDL_PauseAudioDevice(audioDevice, 1);
+                } else if (
+                    !command &&
+                    !event.key.repeat &&
+                    !isFullscreen(window) &&
+                    event.key.keysym.sym >= SDLK_1 &&
+                    event.key.keysym.sym <= SDLK_4) {
+                    const int scale = event.key.keysym.sym - SDLK_0;
+                    SDL_SetWindowSize(
+                        window,
+                        WINDOW_MIN_WIDTH * scale,
+                        WINDOW_MIN_HEIGHT * scale);
                 } else if (!command) {
                     updateKeyState(&keyboardState, event.key.keysym.sym, true);
                 }

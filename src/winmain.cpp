@@ -29,6 +29,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fstream>
@@ -48,6 +49,10 @@ namespace
 {
 constexpr wchar_t WINDOW_CLASS_NAME[] = L"DewpointAdvanceWindow";
 constexpr int WINDOW_SCALE = 3;
+constexpr int WINDOW_ASPECT_WIDTH = 3;
+constexpr int WINDOW_ASPECT_HEIGHT = 2;
+constexpr int WINDOW_MIN_WIDTH = 240;
+constexpr int WINDOW_MIN_HEIGHT = 160;
 constexpr DWORD AUDIO_FREQUENCY = 44100;
 constexpr DWORD AUDIO_CHANNELS = 2;
 constexpr DWORD AUDIO_BYTES_PER_SAMPLE = sizeof(int16_t);
@@ -59,6 +64,10 @@ constexpr double GBA_MASTER_CLOCK_HZ = 16777216.0;
 constexpr double GBA_CYCLES_PER_FRAME = 280896.0;
 constexpr double GBA_FRAME_RATE = GBA_MASTER_CLOCK_HZ / GBA_CYCLES_PER_FRAME;
 constexpr int MAX_EMULATION_CATCH_UP_FRAMES = 4;
+
+static_assert(
+    WINDOW_MIN_WIDTH * WINDOW_ASPECT_HEIGHT == WINDOW_MIN_HEIGHT * WINDOW_ASPECT_WIDTH,
+    "Minimum window size must match the window aspect ratio");
 
 std::mutex logMutex;
 std::string logPath;
@@ -289,6 +298,14 @@ WindowConfig loadWindowConfig(const std::string& path)
         writeLog("Invalid window configuration: %s", path.c_str());
         return defaultWindowConfig();
     }
+    const int64_t aspectUnits = std::min<int64_t>(
+        std::max<int64_t>(
+            WINDOW_MIN_WIDTH / WINDOW_ASPECT_WIDTH,
+            (static_cast<int64_t>(config.width) + WINDOW_ASPECT_WIDTH / 2) /
+                WINDOW_ASPECT_WIDTH),
+        std::numeric_limits<int>::max() / WINDOW_ASPECT_WIDTH);
+    config.width = static_cast<int32_t>(aspectUnits * WINDOW_ASPECT_WIDTH);
+    config.height = static_cast<int32_t>(aspectUnits * WINDOW_ASPECT_HEIGHT);
     return config;
 }
 
@@ -903,6 +920,167 @@ struct WindowState {
 
 WindowState* activeWindow = nullptr;
 
+enum class ResizeDimension {
+    Automatic,
+    Width,
+    Height,
+};
+
+void getWindowFrameSize(HWND window, int* width, int* height)
+{
+    RECT windowRect{};
+    RECT clientRect{};
+    if (GetWindowRect(window, &windowRect) && GetClientRect(window, &clientRect)) {
+        const int windowWidth = windowRect.right - windowRect.left;
+        const int windowHeight = windowRect.bottom - windowRect.top;
+        const int clientWidth = clientRect.right - clientRect.left;
+        const int clientHeight = clientRect.bottom - clientRect.top;
+        if (windowWidth > 0 &&
+            windowHeight > 0 &&
+            windowWidth >= clientWidth &&
+            windowHeight >= clientHeight) {
+            *width = windowWidth - clientWidth;
+            *height = windowHeight - clientHeight;
+            return;
+        }
+    }
+
+    RECT frame{};
+    const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+    const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+    AdjustWindowRectEx(&frame, style, FALSE, extendedStyle);
+    *width = frame.right - frame.left;
+    *height = frame.bottom - frame.top;
+}
+
+void constrainClientSize(
+    int requestedWidth,
+    int requestedHeight,
+    int previousWidth,
+    int previousHeight,
+    ResizeDimension dimension,
+    int* width,
+    int* height)
+{
+    if (dimension == ResizeDimension::Automatic) {
+        const int64_t widthChange =
+            std::abs(static_cast<int64_t>(requestedWidth) - previousWidth) * WINDOW_ASPECT_HEIGHT;
+        const int64_t heightChange =
+            std::abs(static_cast<int64_t>(requestedHeight) - previousHeight) * WINDOW_ASPECT_WIDTH;
+        dimension = widthChange >= heightChange ? ResizeDimension::Width : ResizeDimension::Height;
+    }
+    const int aspectDimension =
+        dimension == ResizeDimension::Width ? WINDOW_ASPECT_WIDTH : WINDOW_ASPECT_HEIGHT;
+    const int requestedDimension = std::max(
+        dimension == ResizeDimension::Width ? requestedWidth : requestedHeight,
+        dimension == ResizeDimension::Width ? WINDOW_MIN_WIDTH : WINDOW_MIN_HEIGHT);
+    const int64_t aspectUnits = std::max<int64_t>(
+        WINDOW_MIN_WIDTH / WINDOW_ASPECT_WIDTH,
+        (static_cast<int64_t>(requestedDimension) + aspectDimension / 2) / aspectDimension);
+    const int64_t constrainedUnits = std::min<int64_t>(
+        aspectUnits,
+        std::numeric_limits<int>::max() / WINDOW_ASPECT_WIDTH);
+    *width = static_cast<int>(constrainedUnits * WINDOW_ASPECT_WIDTH);
+    *height = static_cast<int>(constrainedUnits * WINDOW_ASPECT_HEIGHT);
+}
+
+bool setClientSize(HWND window, int width, int height)
+{
+    int frameWidth = 0;
+    int frameHeight = 0;
+    getWindowFrameSize(window, &frameWidth, &frameHeight);
+    const int outerWidth = static_cast<int>(std::min<int64_t>(
+        static_cast<int64_t>(width) + frameWidth,
+        std::numeric_limits<int>::max()));
+    const int outerHeight = static_cast<int>(std::min<int64_t>(
+        static_cast<int64_t>(height) + frameHeight,
+        std::numeric_limits<int>::max()));
+    return SetWindowPos(
+        window,
+        nullptr,
+        0,
+        0,
+        outerWidth,
+        outerHeight,
+        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE;
+}
+
+void constrainSizingRect(
+    WindowState* state,
+    WPARAM edge,
+    RECT* outer)
+{
+    int frameWidth = 0;
+    int frameHeight = 0;
+    getWindowFrameSize(state->window, &frameWidth, &frameHeight);
+    const int requestedWidth = outer->right - outer->left - frameWidth;
+    const int requestedHeight = outer->bottom - outer->top - frameHeight;
+
+    ResizeDimension dimension = ResizeDimension::Automatic;
+    if (edge == WMSZ_LEFT || edge == WMSZ_RIGHT) {
+        dimension = ResizeDimension::Width;
+    } else if (edge == WMSZ_TOP || edge == WMSZ_BOTTOM) {
+        dimension = ResizeDimension::Height;
+    }
+
+    int clientWidth = 0;
+    int clientHeight = 0;
+    constrainClientSize(
+        requestedWidth,
+        requestedHeight,
+        state->windowedWidth,
+        state->windowedHeight,
+        dimension,
+        &clientWidth,
+        &clientHeight);
+    const int outerWidth = clientWidth + frameWidth;
+    const int outerHeight = clientHeight + frameHeight;
+
+    if (edge == WMSZ_LEFT || edge == WMSZ_TOPLEFT || edge == WMSZ_BOTTOMLEFT) {
+        outer->left = outer->right - outerWidth;
+    } else {
+        outer->right = outer->left + outerWidth;
+    }
+    if (edge == WMSZ_TOP || edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT) {
+        outer->top = outer->bottom - outerHeight;
+    } else {
+        outer->bottom = outer->top + outerHeight;
+    }
+}
+
+void updateWindowMinMaxInfo(HWND window, MINMAXINFO* info)
+{
+    int frameWidth = 0;
+    int frameHeight = 0;
+    getWindowFrameSize(window, &frameWidth, &frameHeight);
+    info->ptMinTrackSize.x = WINDOW_MIN_WIDTH + frameWidth;
+    info->ptMinTrackSize.y = WINDOW_MIN_HEIGHT + frameHeight;
+
+    MONITORINFO monitor{};
+    monitor.cbSize = sizeof(monitor);
+    const HMONITOR target = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+    if (!GetMonitorInfoW(target, &monitor)) {
+        return;
+    }
+    const int workWidth = monitor.rcWork.right - monitor.rcWork.left;
+    const int workHeight = monitor.rcWork.bottom - monitor.rcWork.top;
+    const int clientWidth = std::max(0, workWidth - frameWidth);
+    const int clientHeight = std::max(0, workHeight - frameHeight);
+    const int aspectUnits = std::max(
+        WINDOW_MIN_WIDTH / WINDOW_ASPECT_WIDTH,
+        std::min(clientWidth / WINDOW_ASPECT_WIDTH, clientHeight / WINDOW_ASPECT_HEIGHT));
+    const int maximumWidth = aspectUnits * WINDOW_ASPECT_WIDTH + frameWidth;
+    const int maximumHeight = aspectUnits * WINDOW_ASPECT_HEIGHT + frameHeight;
+    info->ptMaxPosition.x =
+        monitor.rcWork.left - monitor.rcMonitor.left + (workWidth - maximumWidth) / 2;
+    info->ptMaxPosition.y =
+        monitor.rcWork.top - monitor.rcMonitor.top + (workHeight - maximumHeight) / 2;
+    info->ptMaxSize.x = maximumWidth;
+    info->ptMaxSize.y = maximumHeight;
+    info->ptMaxTrackSize.x = maximumWidth;
+    info->ptMaxTrackSize.y = maximumHeight;
+}
+
 void rememberWindowedState(WindowState* state)
 {
     if (!state || !state->window || state->fullscreen || IsIconic(state->window)) {
@@ -967,6 +1145,9 @@ bool setFullscreen(WindowState* state, bool fullscreen)
             SWP_FRAMECHANGED | SWP_SHOWWINDOW);
         ShowCursor(TRUE);
         state->fullscreen = false;
+        if (!setClientSize(state->window, state->windowedWidth, state->windowedHeight)) {
+            writeLog("Failed to restore the windowed client size");
+        }
     }
     if (state->renderer) {
         state->renderer->requestReset();
@@ -989,6 +1170,18 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             PostQuitMessage(0);
             return 0;
         case WM_ERASEBKGND: return 1;
+        case WM_GETMINMAXINFO:
+            if (!state || !state->fullscreen) {
+                updateWindowMinMaxInfo(window, reinterpret_cast<MINMAXINFO*>(lParam));
+                return 0;
+            }
+            break;
+        case WM_SIZING:
+            if (state && !state->fullscreen) {
+                constrainSizingRect(state, wParam, reinterpret_cast<RECT*>(lParam));
+                return TRUE;
+            }
+            break;
         case WM_SIZE:
             if (state && !state->fullscreen && wParam != SIZE_MINIMIZED) {
                 state->windowedWidth = LOWORD(lParam);
@@ -1011,6 +1204,19 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             if (state && !(lParam & (1U << 30))) {
                 if (wParam == VK_F11) {
                     setFullscreen(state, !state->fullscreen);
+                    return 0;
+                }
+                if (!state->fullscreen && wParam >= '1' && wParam <= '4') {
+                    if (IsZoomed(window)) {
+                        ShowWindow(window, SW_RESTORE);
+                    }
+                    const int scale = static_cast<int>(wParam - '0');
+                    if (!setClientSize(
+                            window,
+                            WINDOW_MIN_WIDTH * scale,
+                            WINDOW_MIN_HEIGHT * scale)) {
+                        writeLog("Failed to set window scale: %d", scale);
+                    }
                     return 0;
                 }
                 if (GetKeyState(VK_CONTROL) & 0x8000) {
@@ -1090,6 +1296,13 @@ HWND createApplicationWindow(HINSTANCE instance, const WindowConfig& config, Win
     }
     state->window = window;
     activeWindow = state;
+    if (!setClientSize(window, config.width, config.height)) {
+        writeLog("Failed to set the initial client size");
+        DestroyWindow(window);
+        activeWindow = nullptr;
+        UnregisterClassW(WINDOW_CLASS_NAME, instance);
+        return nullptr;
+    }
     ShowWindow(window, SW_SHOW);
     UpdateWindow(window);
     rememberWindowedState(state);
