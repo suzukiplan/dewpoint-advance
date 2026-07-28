@@ -1082,6 +1082,9 @@ int main(int argc, char* argv[])
     steamInput.setLoggger([](const char* message) {
         std::cerr << "[SteamInput] " << message << '\n';
     });
+    if (steamInitialized) {
+        steamInput.enableOverlayTracking();
+    }
     const bool steamInputInitialized = steamInitialized && steamInput.initializeInput();
 
     const WindowConfig config = loadWindowConfig(configPath);
@@ -1190,10 +1193,20 @@ int main(int argc, char* argv[])
 
     bool running = true;
     bool paused = false;
+    bool steamOverlayActive = false;
     // Playback starts only after real PCM reaches the target. The audio device
     // then becomes the emulation clock, keeping VSync and rendering stalls from
     // silently growing or draining the queue.
     bool audioPlaybackStarted = false;
+    const auto setPaused = [&](bool value) {
+        if (paused == value) {
+            return;
+        }
+        paused = value;
+        SDL_ClearQueuedAudio(audioDevice);
+        audioPlaybackStarted = false;
+        SDL_PauseAudioDevice(audioDevice, 1);
+    };
     int exitCode = 0;
     mGBAHelper::KeyState keyboardState{};
     while (running) {
@@ -1239,10 +1252,7 @@ int main(int argc, char* argv[])
                     audioPlaybackStarted = false;
                     SDL_PauseAudioDevice(audioDevice, 1);
                 } else if (command && event.key.keysym.sym == SDLK_p && !event.key.repeat) {
-                    paused = !paused;
-                    SDL_ClearQueuedAudio(audioDevice);
-                    audioPlaybackStarted = false;
-                    SDL_PauseAudioDevice(audioDevice, 1);
+                    setPaused(!paused);
                 } else if (
                     !command &&
                     !event.key.repeat &&
@@ -1266,6 +1276,12 @@ int main(int argc, char* argv[])
         }
 
         dewpoint.tick();
+        const bool currentSteamOverlayActive =
+            steamInitialized && steamInput.isOverlay();
+        if (steamOverlayActive != currentSteamOverlayActive) {
+            steamOverlayActive = currentSteamOverlayActive;
+            setPaused(steamOverlayActive);
+        }
         if (steamInputInitialized) {
             steamInput.updateInput();
         }

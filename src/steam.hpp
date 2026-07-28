@@ -313,13 +313,18 @@ class CSteam
             utils->SetGlobalCallback_SteamNetConnectionStatusChanged(&CSteam::StaticConnectionStatusChanged);
             utils->InitRelayNetworkAccess();
             SteamNetworkingSockets()->InitAuthentication();
-            callbackGameOverlayActivated.Register(this, &CSteam::onGameOverlayActivated);
+            this->enableOverlayTracking();
             callbackLobbyDataUpdate.Register(this, &CSteam::onLobbyDataUpdated);
             if (this->initializeInput()) {
                 this->initialized = true;
             }
         }
         return this->initialized;
+    }
+
+    void enableOverlayTracking()
+    {
+        callbackGameOverlayActivated.Register(this, &CSteam::onGameOverlayActivated);
     }
 
     bool initializeInput()
@@ -564,7 +569,7 @@ class CSteam
         return false;
     }
 
-    inline bool isOverlay() { return this->overlay; }
+    inline bool isOverlay() const { return this->overlay; }
 
     uint64_t getOpponentSteamId()
     {

@@ -1303,6 +1303,18 @@ struct WindowState {
     int windowedY;
 };
 
+void setPaused(WindowState* state, bool paused)
+{
+    if (!state || state->paused == paused) {
+        return;
+    }
+    state->paused = paused;
+    if (state->audio) {
+        state->audio->pause(paused);
+    }
+    writeLog("Paused: %s", paused ? "yes" : "no");
+}
+
 WindowState* activeWindow = nullptr;
 
 enum class ResizeDimension {
@@ -1612,9 +1624,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                         return 0;
                     }
                     if (wParam == 'P') {
-                        state->paused = !state->paused;
-                        state->audio->pause(state->paused);
-                        writeLog("Paused: %s", state->paused ? "yes" : "no");
+                        setPaused(state, !state->paused);
                         return 0;
                     }
                 }
@@ -1851,6 +1861,9 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     steamInput.setLoggger([](const char* message) {
         writeLog("[SteamInput] %s", message);
     });
+    if (steamInitialized) {
+        steamInput.enableOverlayTracking();
+    }
     const bool steamInputInitialized = steamInitialized && steamInput.initializeInput();
 
     const WindowConfig config = loadWindowConfig(configPath);
@@ -1900,6 +1913,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         });
 
     int exitCode = 0;
+    bool steamOverlayActive = false;
     while (windowState.running) {
         MSG message{};
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
@@ -1915,6 +1929,12 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         }
 
         dewpoint.tick();
+        const bool currentSteamOverlayActive =
+            steamInitialized && steamInput.isOverlay();
+        if (steamOverlayActive != currentSteamOverlayActive) {
+            steamOverlayActive = currentSteamOverlayActive;
+            setPaused(&windowState, steamOverlayActive);
+        }
         if (steamInputInitialized) {
             steamInput.updateInput();
         }
