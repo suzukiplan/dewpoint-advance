@@ -10,4 +10,4 @@
   - 3: 720×480 (3×)
   - 4: 960×640 (4×)
 - CRT Filter Mode (macOS/Linux)
-
+- Improved low-latency audio buffering and underrun recovery on Windows, macOS, and Linux

@@ -60,11 +60,14 @@ constexpr DWORD AUDIO_BYTES_PER_SAMPLE = sizeof(int16_t);
 constexpr DWORD AUDIO_FRAME_BYTES = AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE;
 constexpr DWORD AUDIO_BUFFER_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES;
 constexpr DWORD AUDIO_LATENCY_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES / 20;
-// One GBA frame is 280896 cycles of the 16.78 MHz master clock.
-constexpr double GBA_MASTER_CLOCK_HZ = 16777216.0;
-constexpr double GBA_CYCLES_PER_FRAME = 280896.0;
-constexpr double GBA_FRAME_RATE = GBA_MASTER_CLOCK_HZ / GBA_CYCLES_PER_FRAME;
-constexpr int MAX_EMULATION_CATCH_UP_FRAMES = 4;
+constexpr DWORD AUDIO_SILENCE_GUARD_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES / 2;
+constexpr ULONGLONG AUDIO_BUFFER_DURATION_MS = 1000;
+constexpr int MAX_AUDIO_REFILL_FRAMES = 8;
+
+static_assert(AUDIO_BUFFER_BYTES % AUDIO_FRAME_BYTES == 0);
+static_assert(AUDIO_LATENCY_BYTES % AUDIO_FRAME_BYTES == 0);
+static_assert(AUDIO_SILENCE_GUARD_BYTES % AUDIO_FRAME_BYTES == 0);
+static_assert(AUDIO_LATENCY_BYTES + AUDIO_SILENCE_GUARD_BYTES < AUDIO_BUFFER_BYTES);
 
 const char* CRT_PIXEL_SHADER = R"HLSL(
 sampler2D sourceTexture : register(s0);
@@ -938,7 +941,47 @@ class DirectSoundOutput
     DWORD writeOffset;
     DWORD lastPlayCursor;
     DWORD bufferedBytes;
+    ULONGLONG lastCursorQuery;
     bool playing;
+
+    static DWORD forwardDistance(DWORD from, DWORD to)
+    {
+        return to >= from ? to - from : AUDIO_BUFFER_BYTES - from + to;
+    }
+
+    HRESULT writeRegion(DWORD offset, const void* samples, DWORD size)
+    {
+        void* first = nullptr;
+        void* second = nullptr;
+        DWORD firstSize = 0;
+        DWORD secondSize = 0;
+        const HRESULT result = buffer->Lock(
+            offset,
+            size,
+            &first,
+            &firstSize,
+            &second,
+            &secondSize,
+            0);
+        if (FAILED(result)) {
+            return result;
+        }
+        if (samples) {
+            std::memcpy(first, samples, firstSize);
+            if (second && secondSize) {
+                std::memcpy(
+                    second,
+                    static_cast<const uint8_t*>(samples) + firstSize,
+                    secondSize);
+            }
+        } else {
+            std::memset(first, 0, firstSize);
+            if (second && secondSize) {
+                std::memset(second, 0, secondSize);
+            }
+        }
+        return buffer->Unlock(first, firstSize, second, secondSize);
+    }
 
     bool clearBuffer()
     {
@@ -973,30 +1016,81 @@ class DirectSoundOutput
         if (second && secondSize) {
             std::memset(second, 0, secondSize);
         }
-        buffer->Unlock(first, firstSize, second, secondSize);
+        result = buffer->Unlock(first, firstSize, second, secondSize);
+        if (FAILED(result)) {
+            writeLog("IDirectSoundBuffer8::Unlock failed while clearing: %08lX", result);
+            return false;
+        }
         return true;
+    }
+
+    bool startPlayback()
+    {
+        if (playing || bufferedBytes < AUDIO_LATENCY_BYTES) {
+            return true;
+        }
+        if (FAILED(buffer->SetCurrentPosition(0))) {
+            writeLog("IDirectSoundBuffer8::SetCurrentPosition failed");
+            return false;
+        }
+        lastPlayCursor = 0;
+        lastCursorQuery = GetTickCount64();
+        const HRESULT result = buffer->Play(0, 0, DSBPLAY_LOOPING);
+        if (FAILED(result)) {
+            writeLog("IDirectSoundBuffer8::Play failed: %08lX", result);
+            return false;
+        }
+        playing = true;
+        return true;
+    }
+
+    bool recoverUnderrun(const char* reason)
+    {
+        writeLog("DirectSound underrun; rebuilding prebuffer (%s)", reason);
+        return reset();
     }
 
     bool updatePlayback()
     {
+        if (!playing) {
+            return true;
+        }
+
+        const ULONGLONG now = GetTickCount64();
+        if (now - lastCursorQuery >= AUDIO_BUFFER_DURATION_MS) {
+            return recoverUnderrun("cursor polling interval exceeded ring duration");
+        }
+
         DWORD playCursor = 0;
-        const HRESULT result = buffer->GetCurrentPosition(&playCursor, nullptr);
+        DWORD safeWriteCursor = 0;
+        const HRESULT result =
+            buffer->GetCurrentPosition(&playCursor, &safeWriteCursor);
         if (FAILED(result)) {
             writeLog("IDirectSoundBuffer8::GetCurrentPosition failed: %08lX", result);
             return false;
         }
-        const DWORD played = playCursor >= lastPlayCursor
-                                 ? playCursor - lastPlayCursor
-                                 : AUDIO_BUFFER_BYTES - lastPlayCursor + playCursor;
-        bufferedBytes = played >= bufferedBytes ? 0 : bufferedBytes - played;
+        lastCursorQuery = now;
+
+        const DWORD played = forwardDistance(lastPlayCursor, playCursor);
+        if (played >= bufferedBytes) {
+            return recoverUnderrun("play cursor reached queued PCM");
+        }
+        bufferedBytes -= played;
         lastPlayCursor = playCursor;
+
+        // DirectSound may already be mixing ahead of the play cursor. If that
+        // safe-write boundary reaches our PCM endpoint, appending at the old
+        // endpoint would race the mixer, so rebuild the prebuffer instead.
+        if (forwardDistance(playCursor, safeWriteCursor) >= bufferedBytes) {
+            return recoverUnderrun("safe write cursor reached queued PCM");
+        }
         return true;
     }
 
   public:
     DirectSoundOutput()
         : directSound(nullptr), buffer(nullptr), writeOffset(0), lastPlayCursor(0), bufferedBytes(0),
-          playing(false)
+          lastCursorQuery(0), playing(false)
     {
     }
 
@@ -1058,17 +1152,14 @@ class DirectSoundOutput
             return false;
         }
         if (FAILED(buffer->SetCurrentPosition(0))) {
+            writeLog("IDirectSoundBuffer8::SetCurrentPosition failed while resetting");
             return false;
         }
-        writeOffset = AUDIO_LATENCY_BYTES;
+        writeOffset = 0;
         lastPlayCursor = 0;
-        bufferedBytes = AUDIO_LATENCY_BYTES;
-        const HRESULT result = buffer->Play(0, 0, DSBPLAY_LOOPING);
-        if (FAILED(result)) {
-            writeLog("IDirectSoundBuffer8::Play failed: %08lX", result);
-            return false;
-        }
-        playing = true;
+        bufferedBytes = 0;
+        lastCursorQuery = 0;
+        playing = false;
         return true;
     }
 
@@ -1078,79 +1169,104 @@ class DirectSoundOutput
             return;
         }
         if (paused) {
-            buffer->Stop();
-            playing = false;
-        } else if (!playing) {
             reset();
         }
     }
 
-    bool queue(const void* samples, DWORD size)
+    bool getBufferedBytes(DWORD* size)
     {
-        if (!buffer || !samples || !size) {
-            return true;
-        }
-        if (size > AUDIO_BUFFER_BYTES - AUDIO_LATENCY_BYTES) {
-            writeLog("Audio packet is too large: %lu", size);
-            return false;
-        }
-        if (!playing && !reset()) {
+        if (!size || !buffer) {
             return false;
         }
         if (!updatePlayback()) {
             return false;
         }
-        if (!bufferedBytes && !reset()) {
+        *size = bufferedBytes;
+        return true;
+    }
+
+    bool queue(const void* samples, DWORD size)
+    {
+        if (!buffer) {
             return false;
         }
-        while (AUDIO_BUFFER_BYTES - bufferedBytes < size) {
+        if (!size) {
+            return true;
+        }
+        if (!samples) {
+            writeLog("Audio packet pointer is null for %lu bytes", size);
+            return false;
+        }
+        if ((size % AUDIO_FRAME_BYTES) != 0) {
+            writeLog("Audio packet is not frame-aligned: %lu", size);
+            return false;
+        }
+        if (size > AUDIO_BUFFER_BYTES - AUDIO_SILENCE_GUARD_BYTES) {
+            writeLog("Audio packet is too large: %lu", size);
+            return false;
+        }
+        if (!updatePlayback()) {
+            return false;
+        }
+        while (bufferedBytes >
+               AUDIO_BUFFER_BYTES - AUDIO_SILENCE_GUARD_BYTES - size) {
             Sleep(1);
             if (!updatePlayback()) {
                 return false;
             }
         }
 
-        void* first = nullptr;
-        void* second = nullptr;
-        DWORD firstSize = 0;
-        DWORD secondSize = 0;
-        HRESULT result = buffer->Lock(
-            writeOffset,
-            size,
-            &first,
-            &firstSize,
-            &second,
-            &secondSize,
-            0);
+        HRESULT result = writeRegion(writeOffset, samples, size);
         if (result == DSERR_BUFFERLOST) {
+            const HRESULT restoreResult = buffer->Restore();
+            if (restoreResult != DS_OK) {
+                writeLog(
+                    "IDirectSoundBuffer8::Restore failed after Lock failure: %08lX",
+                    restoreResult);
+                return false;
+            }
             if (!reset()) {
                 return false;
             }
-            result = buffer->Lock(
-                writeOffset,
-                size,
-                &first,
-                &firstSize,
-                &second,
-                &secondSize,
-                0);
-        }
-        if (FAILED(result)) {
+            result = writeRegion(writeOffset, samples, size);
+            if (FAILED(result)) {
+                writeLog(
+                    "IDirectSoundBuffer8::Lock failed after restoring: %08lX",
+                    result);
+                return false;
+            }
+        } else if (FAILED(result)) {
             writeLog("IDirectSoundBuffer8::Lock failed: %08lX", result);
-            return false;
-        }
-        std::memcpy(first, samples, firstSize);
-        if (second && secondSize) {
-            std::memcpy(second, static_cast<const uint8_t*>(samples) + firstSize, secondSize);
-        }
-        result = buffer->Unlock(first, firstSize, second, secondSize);
-        if (FAILED(result)) {
-            writeLog("IDirectSoundBuffer8::Unlock failed: %08lX", result);
             return false;
         }
         writeOffset = (writeOffset + size) % AUDIO_BUFFER_BYTES;
         bufferedBytes += size;
-        return true;
+
+        // The buffer was fully cleared on reset. As valid PCM advances by
+        // `size`, clear only the newly exposed tail of the silence guard; the
+        // overlapping part is already zero. This prevents stale PCM playback
+        // without locking half of the DirectSound ring every frame.
+        const DWORD guardTailOffset =
+            (writeOffset + AUDIO_SILENCE_GUARD_BYTES - size) %
+            AUDIO_BUFFER_BYTES;
+        result = writeRegion(guardTailOffset, nullptr, size);
+        if (result == DSERR_BUFFERLOST) {
+            const HRESULT restoreResult = buffer->Restore();
+            if (restoreResult != DS_OK) {
+                writeLog(
+                    "IDirectSoundBuffer8::Restore failed while writing silence guard: %08lX",
+                    restoreResult);
+                return false;
+            }
+            return reset();
+        }
+        if (FAILED(result)) {
+            writeLog(
+                "IDirectSoundBuffer8::Lock failed while writing silence guard: %08lX",
+                result);
+            return false;
+        }
+        return startPlayback();
     }
 
     void shutdown()
@@ -1164,6 +1280,10 @@ class DirectSoundOutput
             directSound->Release();
             directSound = nullptr;
         }
+        writeOffset = 0;
+        lastPlayCursor = 0;
+        bufferedBytes = 0;
+        lastCursorQuery = 0;
         playing = false;
     }
 };
@@ -1780,24 +1900,6 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         });
 
     int exitCode = 0;
-    LARGE_INTEGER performanceFrequency{};
-    LARGE_INTEGER previousPerformanceCounter{};
-    if (!QueryPerformanceFrequency(&performanceFrequency) ||
-        !QueryPerformanceCounter(&previousPerformanceCounter)) {
-        writeLog("Failed to initialize the high-resolution performance counter");
-        reportError("Failed to initialize the high-resolution timer. See log.txt for details.");
-        audio.shutdown();
-        renderer.shutdown();
-        DestroyWindow(window);
-        activeWindow = nullptr;
-        UnregisterClassW(WINDOW_CLASS_NAME, instance);
-        return 1;
-    }
-    const double emulationFrameTicks =
-        static_cast<double>(performanceFrequency.QuadPart) / GBA_FRAME_RATE;
-    // Present the nearest emulated frame at each VSync instead of immediately
-    // repeating the first frame on displays whose refresh rate is just above 59.73 Hz.
-    double emulationAccumulator = emulationFrameTicks * 1.5;
     while (windowState.running) {
         MSG message{};
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
@@ -1836,31 +1938,39 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             break;
         }
         if (windowState.paused) {
-            QueryPerformanceCounter(&previousPerformanceCounter);
             Sleep(10);
             continue;
         }
 
-        LARGE_INTEGER performanceCounter{};
-        QueryPerformanceCounter(&performanceCounter);
-        const double elapsedTicks =
-            static_cast<double>(
-                performanceCounter.QuadPart - previousPerformanceCounter.QuadPart);
-        previousPerformanceCounter = performanceCounter;
-        emulationAccumulator = std::min(
-            emulationAccumulator + elapsedTicks,
-            emulationFrameTicks * MAX_EMULATION_CATCH_UP_FRAMES);
-
-        while (emulationAccumulator >= emulationFrameTicks) {
-            gba.tick();
-            emulationAccumulator -= emulationFrameTicks;
+        DWORD bufferedAudioBytes = 0;
+        if (!audio.getBufferedBytes(&bufferedAudioBytes)) {
+            windowState.running = false;
+            exitCode = 1;
+            break;
         }
+        for (int refill = 0;
+             refill < MAX_AUDIO_REFILL_FRAMES &&
+             bufferedAudioBytes < AUDIO_LATENCY_BYTES;
+             ++refill) {
+            gba.tick();
 
-        size_t soundSize = 0;
-        uint16_t* sound = gba.dequeSound(&soundSize);
-        if (soundSize > std::numeric_limits<DWORD>::max() ||
-            !audio.queue(sound, static_cast<DWORD>(soundSize)) ||
-            !renderer.render(gba.getVram())) {
+            size_t soundSize = 0;
+            uint16_t* sound = gba.dequeSound(&soundSize);
+            if (!sound || !soundSize) {
+                break;
+            }
+            if (soundSize > std::numeric_limits<DWORD>::max() ||
+                !audio.queue(sound, static_cast<DWORD>(soundSize)) ||
+                !audio.getBufferedBytes(&bufferedAudioBytes)) {
+                windowState.running = false;
+                exitCode = 1;
+                break;
+            }
+        }
+        if (!windowState.running) {
+            break;
+        }
+        if (!renderer.render(gba.getVram())) {
             windowState.running = false;
             exitCode = 1;
         }

@@ -62,13 +62,9 @@ constexpr int WINDOW_MIN_WIDTH = 240;
 constexpr int WINDOW_MIN_HEIGHT = 160;
 constexpr int AUDIO_FREQUENCY = 44100;
 constexpr int AUDIO_CHANNELS = 2;
-constexpr int AUDIO_SAMPLES = 2048;
+constexpr int AUDIO_SAMPLES = 512;
 constexpr Uint32 TARGET_QUEUED_AUDIO_SIZE = AUDIO_FREQUENCY * AUDIO_CHANNELS * sizeof(int16_t) / 20;
-// One GBA frame is 280896 cycles of the 16.78 MHz master clock.
-constexpr double GBA_MASTER_CLOCK_HZ = 16777216.0;
-constexpr double GBA_CYCLES_PER_FRAME = 280896.0;
-constexpr double GBA_FRAME_RATE = GBA_MASTER_CLOCK_HZ / GBA_CYCLES_PER_FRAME;
-constexpr int MAX_EMULATION_CATCH_UP_FRAMES = 4;
+constexpr int MAX_AUDIO_REFILL_FRAMES = 8;
 
 static_assert(
     WINDOW_MIN_WIDTH * WINDOW_ASPECT_HEIGHT == WINDOW_MIN_HEIGHT * WINDOW_ASPECT_WIDTH,
@@ -1168,7 +1164,9 @@ int main(int argc, char* argv[])
     desired.format = AUDIO_S16SYS;
     desired.channels = AUDIO_CHANNELS;
     desired.samples = AUDIO_SAMPLES;
-    SDL_AudioDeviceID audioDevice = SDL_OpenAudioDevice(nullptr, 0, &desired, nullptr, 0);
+    SDL_AudioSpec obtained{};
+    SDL_AudioDeviceID audioDevice =
+        SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
     if (!audioDevice) {
         std::cerr << "SDL_OpenAudioDevice failed: " << SDL_GetError() << '\n';
         saveConfig();
@@ -1176,21 +1174,28 @@ int main(int argc, char* argv[])
         SDL_DestroyWindow(window);
         return 1;
     }
+    if (obtained.freq != AUDIO_FREQUENCY ||
+        obtained.format != AUDIO_S16SYS ||
+        obtained.channels != AUDIO_CHANNELS) {
+        std::cerr << "SDL opened an incompatible audio format\n";
+        SDL_CloseAudioDevice(audioDevice);
+        saveConfig();
+        renderer.shutdown();
+        SDL_DestroyWindow(window);
+        return 1;
+    }
+    std::cerr << "SDL audio initialized: frequency=" << obtained.freq
+              << ", channels=" << static_cast<int>(obtained.channels)
+              << ", samples=" << obtained.samples << '\n';
 
     bool running = true;
     bool paused = false;
-    // SDL audio devices start paused. Let the fixed-step loop prebuffer audio
-    // before playback so the VSync wait cannot cause a startup underrun.
+    // Playback starts only after real PCM reaches the target. The audio device
+    // then becomes the emulation clock, keeping VSync and rendering stalls from
+    // silently growing or draining the queue.
     bool audioPlaybackStarted = false;
     int exitCode = 0;
     mGBAHelper::KeyState keyboardState{};
-    const Uint64 performanceFrequency = SDL_GetPerformanceFrequency();
-    const double emulationFrameTicks =
-        static_cast<double>(performanceFrequency) / GBA_FRAME_RATE;
-    // Present the nearest emulated frame at each VSync instead of immediately
-    // repeating the first frame on displays whose refresh rate is just above 59.73 Hz.
-    double emulationAccumulator = emulationFrameTicks * 1.5;
-    Uint64 previousPerformanceCounter = SDL_GetPerformanceCounter();
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -1283,47 +1288,61 @@ int main(int argc, char* argv[])
             break;
         }
         if (paused) {
-            previousPerformanceCounter = SDL_GetPerformanceCounter();
             SDL_Delay(10);
             continue;
         }
 
-        const Uint64 performanceCounter = SDL_GetPerformanceCounter();
-        const double elapsedTicks =
-            static_cast<double>(performanceCounter - previousPerformanceCounter);
-        previousPerformanceCounter = performanceCounter;
-        emulationAccumulator = std::min(
-            emulationAccumulator + elapsedTicks,
-            emulationFrameTicks * MAX_EMULATION_CATCH_UP_FRAMES);
-
-        while (emulationAccumulator >= emulationFrameTicks) {
-            gba.tick();
-            emulationAccumulator -= emulationFrameTicks;
+        Uint32 queuedAudioSize = SDL_GetQueuedAudioSize(audioDevice);
+        if (audioPlaybackStarted && queuedAudioSize == 0) {
+            // SDL supplies silence after a queued-audio underrun. Pause and
+            // rebuild the target instead of joining new PCM onto that gap.
+            std::cerr << "SDL audio underrun; rebuilding prebuffer\n";
+            SDL_PauseAudioDevice(audioDevice, 1);
+            SDL_ClearQueuedAudio(audioDevice);
+            audioPlaybackStarted = false;
         }
 
-        size_t soundSize = 0;
-        uint16_t* sound = gba.dequeSound(&soundSize);
-        if (sound && soundSize) {
-            if (SDL_QueueAudio(audioDevice, sound, static_cast<Uint32>(soundSize)) != 0) {
+        bool emulationAdvanced = false;
+        for (int refill = 0;
+             refill < MAX_AUDIO_REFILL_FRAMES &&
+             queuedAudioSize < TARGET_QUEUED_AUDIO_SIZE;
+             ++refill) {
+            gba.tick();
+            emulationAdvanced = true;
+
+            size_t soundSize = 0;
+            uint16_t* sound = gba.dequeSound(&soundSize);
+            if (!sound || !soundSize) {
+                break;
+            }
+            if (soundSize > std::numeric_limits<Uint32>::max()) {
+                std::cerr << "SDL audio packet is too large: " << soundSize << '\n';
+                running = false;
+                break;
+            }
+            if (SDL_QueueAudio(
+                    audioDevice,
+                    sound,
+                    static_cast<Uint32>(soundSize)) != 0) {
                 std::cerr << "SDL_QueueAudio failed: " << SDL_GetError() << '\n';
                 running = false;
+                break;
             }
+            queuedAudioSize = SDL_GetQueuedAudioSize(audioDevice);
+        }
+        if (!running) {
+            break;
         }
         if (!audioPlaybackStarted &&
-            SDL_GetQueuedAudioSize(audioDevice) >= TARGET_QUEUED_AUDIO_SIZE) {
+            queuedAudioSize >= TARGET_QUEUED_AUDIO_SIZE) {
             SDL_PauseAudioDevice(audioDevice, 0);
             audioPlaybackStarted = true;
         }
 
         renderer.present(gba.getVram());
 
-        if (!rendererUsesVsync && emulationAccumulator < emulationFrameTicks) {
-            const double remainingMilliseconds =
-                (emulationFrameTicks - emulationAccumulator) * 1000.0 /
-                static_cast<double>(performanceFrequency);
-            if (remainingMilliseconds >= 1.0) {
-                SDL_Delay(static_cast<Uint32>(remainingMilliseconds));
-            }
+        if (!rendererUsesVsync && !emulationAdvanced) {
+            SDL_Delay(1);
         }
     }
 
