@@ -17,6 +17,7 @@
 #include "mgbahelper.h"
 #include "pathutil.h"
 #include "steam.hpp"
+#include "video_filter.h"
 
 #include <Windows.h>
 #include <ShlObj.h>
@@ -193,9 +194,121 @@ float4 main(float2 texCoord : TEXCOORD0, float2 pixelPosition : VPOS) : COLOR0
 }
 )HLSL";
 
+// Adapted from lcd-grid-v2-gba-color.glslp for the Direct3D 9 renderer:
+// https://github.com/libretro/glsl-shaders/blob/master/handheld/lcd-grid-v2-gba-color.glslp
+const char* LCD_PIXEL_SHADER = R"HLSL(
+sampler2D sourceTexture : register(s0);
+float4 dimensions : register(c0);
+
+float lcdSmearXFunction(float z)
+{
+    float z2 = z * z;
+    return z * (1.0 + z2 * (
+        -2.0 / 3.0 + z2 * (
+        -1.0 / 5.0 + z2 * (
+         4.0 / 7.0 + z2 * (
+        -1.0 / 9.0 + z2 * (
+        -2.0 / 11.0 + z2 / 13.0))))));
+}
+
+float lcdSmearYFunction(float z)
+{
+    float z2 = z * z;
+    return z * (1.0 + z2 * z2 * (
+        -4.0 / 5.0 + z2 * (
+         2.0 / 7.0 + z2 * (
+         4.0 / 9.0 + z2 * (
+        -4.0 / 11.0 + z2 / 13.0)))));
+}
+
+float lcdSmearX(float x, float footprint, float radius)
+{
+    float low = clamp((x - footprint * 0.5) / radius, -1.0, 1.0);
+    float high = clamp((x + footprint * 0.5) / radius, -1.0, 1.0);
+    return radius * (lcdSmearXFunction(high) - lcdSmearXFunction(low)) /
+        footprint;
+}
+
+float lcdSmearY(float y, float footprint, float radius)
+{
+    float low = clamp((y - footprint * 0.5) / radius, -1.0, 1.0);
+    float high = clamp((y + footprint * 0.5) / radius, -1.0, 1.0);
+    return radius * (lcdSmearYFunction(high) - lcdSmearYFunction(low)) /
+        footprint;
+}
+
+float3 sampleLcdTexel(float2 texel)
+{
+    float2 clampedTexel =
+        clamp(texel, float2(0.0, 0.0), dimensions.xy - float2(1.0, 1.0));
+    float2 coord = (clampedTexel + float2(0.5, 0.5)) / dimensions.xy;
+    return pow(
+        1.5 * tex2D(sourceTexture, coord).rgb,
+        float3(2.2, 2.2, 2.2));
+}
+
+float3 applyGbaColor(float3 color)
+{
+    color = pow(max(color, float3(0.0, 0.0, 0.0)), float3(3.2, 3.2, 3.2));
+    color = saturate(color * 0.94);
+    color = float3(
+         0.82 * color.r + 0.240 * color.g - 0.060 * color.b,
+        0.125 * color.r + 0.665 * color.g + 0.210 * color.b,
+        0.195 * color.r + 0.075 * color.g + 0.730 * color.b);
+    return pow(saturate(color), float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+}
+
+float4 main(float2 texCoord : TEXCOORD0) : COLOR0
+{
+    float2 texelPosition = texCoord * dimensions.xy - float2(0.4999, 0.4999);
+    float2 topLeftTexel = floor(texelPosition);
+    float2 subpixelPosition = texelPosition - topLeftTexel;
+    float2 sourceFootprint = dimensions.xy / dimensions.zw;
+
+    float horizontalPosition = subpixelPosition.x * 3.0;
+    float horizontalFootprint = sourceFootprint.x * 3.0;
+    float3 leftMask = float3(
+        lcdSmearX(horizontalPosition + 1.0, horizontalFootprint, 1.5),
+        lcdSmearX(horizontalPosition,       horizontalFootprint, 1.5),
+        lcdSmearX(horizontalPosition - 1.0, horizontalFootprint, 1.5));
+    float3 rightMask = float3(
+        lcdSmearX(horizontalPosition - 2.0, horizontalFootprint, 1.5),
+        lcdSmearX(horizontalPosition - 3.0, horizontalFootprint, 1.5),
+        lcdSmearX(horizontalPosition - 4.0, horizontalFootprint, 1.5));
+    leftMask = leftMask.bgr;
+    rightMask = rightMask.bgr;
+
+    float topMask =
+        lcdSmearY(subpixelPosition.y, sourceFootprint.y, 0.63);
+    float bottomMask =
+        lcdSmearY(subpixelPosition.y - 1.0, sourceFootprint.y, 0.63);
+
+    float3 color =
+        sampleLcdTexel(topLeftTexel) * leftMask * topMask +
+        sampleLcdTexel(topLeftTexel + float2(1.0, 0.0)) * rightMask * topMask +
+        sampleLcdTexel(topLeftTexel + float2(0.0, 1.0)) * leftMask * bottomMask +
+        sampleLcdTexel(topLeftTexel + float2(1.0, 1.0)) * rightMask * bottomMask;
+    color *= pow(float3(0.75, 0.75, 0.75), float3(2.2, 2.2, 2.2));
+    color = pow(
+        max(color, float3(0.0, 0.0, 0.0)),
+        float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+    return float4(applyGbaColor(color), 1.0);
+}
+)HLSL";
+
 static_assert(
     WINDOW_MIN_WIDTH * WINDOW_ASPECT_HEIGHT == WINDOW_MIN_HEIGHT * WINDOW_ASPECT_WIDTH,
     "Minimum window size must match the window aspect ratio");
+
+const char* videoFilterName(VideoFilter filter)
+{
+    switch (filter) {
+        case VideoFilter::None: return "no";
+        case VideoFilter::Crt: return "crt";
+        case VideoFilter::Lcd: return "lcd";
+    }
+    return "unknown";
+}
 
 std::mutex logMutex;
 std::string logPath;
@@ -540,9 +653,9 @@ class Direct3DRenderer
     IDirect3D9* d3d;
     IDirect3DDevice9* device;
     IDirect3DTexture9* texture;
-    IDirect3DPixelShader9* crtPixelShader;
+    IDirect3DPixelShader9* pixelShader;
     D3DPRESENT_PARAMETERS parameters;
-    bool crtEnabled;
+    VideoFilter videoFilter;
     bool resetRequested;
 
     struct Vertex {
@@ -605,7 +718,7 @@ class Direct3DRenderer
         return true;
     }
 
-    bool createCrtPixelShader()
+    bool createPixelShader(const char* source, const char* filterName)
     {
         D3DCAPS9 capabilities{};
         HRESULT result = device->GetDeviceCaps(&capabilities);
@@ -615,7 +728,8 @@ class Direct3DRenderer
         }
         if (capabilities.PixelShaderVersion < D3DPS_VERSION(3, 0)) {
             writeLog(
-                "The CRT filter requires Pixel Shader 3.0; available version is %u.%u",
+                "The %s filter requires Pixel Shader 3.0; available version is %u.%u",
+                filterName,
                 D3DSHADER_VERSION_MAJOR(capabilities.PixelShaderVersion),
                 D3DSHADER_VERSION_MINOR(capabilities.PixelShaderVersion));
             return false;
@@ -670,9 +784,9 @@ class Direct3DRenderer
         ID3DBlob* bytecode = nullptr;
         ID3DBlob* errors = nullptr;
         result = compile(
-            CRT_PIXEL_SHADER,
-            std::strlen(CRT_PIXEL_SHADER),
-            "Dewpoint CRT filter",
+            source,
+            std::strlen(source),
+            filterName,
             nullptr,
             nullptr,
             "main",
@@ -684,17 +798,24 @@ class Direct3DRenderer
         if (FAILED(result)) {
             if (errors && errors->GetBufferPointer()) {
                 writeLog(
-                    "Failed to compile the CRT pixel shader: %s",
+                    "Failed to compile the %s pixel shader: %s",
+                    filterName,
                     static_cast<const char*>(errors->GetBufferPointer()));
             } else {
-                writeLog("D3DCompile failed for the CRT pixel shader: %08lX", result);
+                writeLog(
+                    "D3DCompile failed for the %s pixel shader: %08lX",
+                    filterName,
+                    result);
             }
         } else {
             result = device->CreatePixelShader(
                 static_cast<const DWORD*>(bytecode->GetBufferPointer()),
-                &crtPixelShader);
+                &pixelShader);
             if (FAILED(result)) {
-                writeLog("IDirect3DDevice9::CreatePixelShader failed: %08lX", result);
+                writeLog(
+                    "IDirect3DDevice9::CreatePixelShader failed for %s: %08lX",
+                    filterName,
+                    result);
             }
         }
 
@@ -705,7 +826,7 @@ class Direct3DRenderer
             bytecode->Release();
         }
         FreeLibrary(compilerModule);
-        return SUCCEEDED(result) && crtPixelShader;
+        return SUCCEEDED(result) && pixelShader;
     }
 
     bool resetDevice()
@@ -742,19 +863,19 @@ class Direct3DRenderer
         , d3d(nullptr)
         , device(nullptr)
         , texture(nullptr)
-        , crtPixelShader(nullptr)
+        , pixelShader(nullptr)
         , parameters{}
-        , crtEnabled(false)
+        , videoFilter(VideoFilter::None)
         , resetRequested(false)
     {
     }
 
     ~Direct3DRenderer() { shutdown(); }
 
-    bool initialize(HWND targetWindow, bool enableCrt)
+    bool initialize(HWND targetWindow, VideoFilter selectedFilter)
     {
         window = targetWindow;
-        crtEnabled = enableCrt;
+        videoFilter = selectedFilter;
         d3d = Direct3DCreate9(D3D_SDK_VERSION);
         if (!d3d) {
             writeLog("Direct3DCreate9 failed");
@@ -798,12 +919,24 @@ class Direct3DRenderer
         if (!createTexture()) {
             return false;
         }
-        if (crtEnabled && !createCrtPixelShader()) {
-            return false;
+        if (videoFilter != VideoFilter::None) {
+            const char* shaderSource = nullptr;
+            if (videoFilter == VideoFilter::Crt) {
+                shaderSource = CRT_PIXEL_SHADER;
+            } else if (videoFilter == VideoFilter::Lcd) {
+                shaderSource = LCD_PIXEL_SHADER;
+            }
+            if (!shaderSource) {
+                writeLog("Unsupported video filter: %d", static_cast<int>(videoFilter));
+                return false;
+            }
+            if (!createPixelShader(shaderSource, videoFilterName(videoFilter))) {
+                return false;
+            }
         }
         writeLog(
             "Direct3D 9 initialized with video filter: %s",
-            crtEnabled ? "crt" : "no");
+            videoFilterName(videoFilter));
         return true;
     }
 
@@ -876,8 +1009,8 @@ class Direct3DRenderer
             device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
             device->SetTexture(0, texture);
             device->SetFVF(VERTEX_FORMAT);
-            result = device->SetPixelShader(crtEnabled ? crtPixelShader : nullptr);
-            if (SUCCEEDED(result) && crtEnabled) {
+            result = device->SetPixelShader(pixelShader);
+            if (SUCCEEDED(result) && pixelShader) {
                 const float shaderDimensions[] = {
                     static_cast<float>(GBA_VRAM_WIDTH),
                     static_cast<float>(GBA_VRAM_HEIGHT),
@@ -914,9 +1047,9 @@ class Direct3DRenderer
 
     void shutdown()
     {
-        if (crtPixelShader) {
-            crtPixelShader->Release();
-            crtPixelShader = nullptr;
+        if (pixelShader) {
+            pixelShader->Release();
+            pixelShader = nullptr;
         }
         if (texture) {
             texture->Release();
@@ -1729,7 +1862,7 @@ void updateGbaKeyState(
 void printUsage(const char* executable)
 {
     writeLog(
-        "Usage: %s [-s <save.dat>] [-c <config.dat>] [-f <crt|no>] [rom.gba]",
+        "Usage: %s [-s <save.dat>] [-c <config.dat>] [-f <crt|lcd|no>] [rom.gba]",
         executable);
 }
 } // namespace
@@ -1750,7 +1883,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     std::string configPath = "config.dat";
     bool usesDefaultSramPath = true;
     bool usesDefaultConfigPath = true;
-    bool crtFilterEnabled = false;
+    VideoFilter videoFilter = VideoFilter::None;
     for (int i = 1; i < __argc; ++i) {
         const std::string argument = __argv[i];
         if (argument == "-s" || argument == "-c" || argument == "-f") {
@@ -1767,9 +1900,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             } else {
                 const std::string filter = __argv[i];
                 if (filter == "crt") {
-                    crtFilterEnabled = true;
+                    videoFilter = VideoFilter::Crt;
+                } else if (filter == "lcd") {
+                    videoFilter = VideoFilter::Lcd;
                 } else if (filter == "no") {
-                    crtFilterEnabled = false;
+                    videoFilter = VideoFilter::None;
                 } else {
                     writeLog("Unknown video filter: %s", filter.c_str());
                     printUsage(__argv[0]);
@@ -1891,7 +2026,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     DirectSoundOutput audio;
     windowState.renderer = &renderer;
     windowState.audio = &audio;
-    if (!renderer.initialize(window, crtFilterEnabled) || !audio.initialize(window)) {
+    if (!renderer.initialize(window, videoFilter) || !audio.initialize(window)) {
         reportError("Failed to initialize DirectX. See log.txt for details.");
         renderer.shutdown();
         audio.shutdown();

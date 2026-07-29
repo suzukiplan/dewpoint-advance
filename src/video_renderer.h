@@ -1,11 +1,7 @@
 #ifndef VIDEO_RENDERER_H
 #define VIDEO_RENDERER_H
 
-enum class VideoFilter {
-    None = 0,
-    Crt = 1,
-    Lcd = 2,
-};
+#include "video_filter.h"
 
 class VideoRenderer
 {

@@ -41,7 +41,7 @@ $(EXENAME): mgba $(OBJECTS) $(STEAM_LIBRARY) "$(ICON_FILE)" $(SETICON)
 	$(SETICON) "$(ICON_FILE)" "$@"
 
 
-$(BUILD_DIR)\winmain.obj: src\winmain.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\mgbahelper.h src\pathutil.h src\steam.hpp
+$(BUILD_DIR)\winmain.obj: src\winmain.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\mgbahelper.h src\pathutil.h src\steam.hpp src\video_filter.h
 	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
 	CL $(CXXFLAGS) /c src\winmain.cpp /Fo$@
 
