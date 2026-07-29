@@ -13,3 +13,4 @@
 - LCD Filter Mode: `-f lcd`
 - Improved low-latency audio buffering and underrun recovery on Windows, macOS, and Linux
 - Paused emulation while the Steam overlay is open and resumed it when the overlay closes
+- Changed sound analog emulation: REAL -> Subtle
