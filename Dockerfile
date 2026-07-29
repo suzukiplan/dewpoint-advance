@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
   libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
   libxinerama-dev libxi-dev \
   libgl1-mesa-dev libdrm-dev libgbm-dev \
+  libvulkan-dev \
   libfreetype6-dev libharfbuzz-dev \
   libpng-dev libjpeg-dev libtiff-dev libwebp-dev \
   libogg-dev libvorbis-dev libflac-dev libmpg123-dev \

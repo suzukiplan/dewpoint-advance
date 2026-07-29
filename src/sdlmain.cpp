@@ -27,6 +27,8 @@
 #include "mgbahelper.h"
 #include "pathutil.h"
 #include "steam.hpp"
+#include "video_renderer.h"
+#include "vulkan_renderer.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -36,6 +38,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -360,7 +363,7 @@ struct GlApi {
     }
 };
 
-class CrtRenderer
+class CrtRenderer final : public VideoRenderer
 {
   private:
     SDL_Window* window;
@@ -466,12 +469,16 @@ class CrtRenderer
     {
     }
 
-    ~CrtRenderer()
+    ~CrtRenderer() override
     {
         shutdown();
     }
 
-    bool initialize(SDL_Window* targetWindow, int width, int height, bool crtEnabled)
+    bool initialize(
+        SDL_Window* targetWindow,
+        int width,
+        int height,
+        bool crtEnabled) override
     {
         window = targetWindow;
         inputWidth = width;
@@ -554,12 +561,12 @@ class CrtRenderer
         return true;
     }
 
-    bool usesVsync() const
+    bool usesVsync() const override
     {
         return vsyncEnabled;
     }
 
-    void present(const void* pixels)
+    void present(const void* pixels) override
     {
         int drawableWidth = 0;
         int drawableHeight = 0;
@@ -617,7 +624,7 @@ class CrtRenderer
         SDL_GL_SwapWindow(window);
     }
 
-    void shutdown()
+    void shutdown() override
     {
         if (!context) {
             return;
@@ -1094,21 +1101,73 @@ int main(int argc, char* argv[])
     int windowedX = config.x;
     int windowedY = config.y;
 
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_Window* window = SDL_CreateWindow(
+    SDL_Window* window = nullptr;
+    std::unique_ptr<VideoRenderer> renderer;
+    const char* videoRendererName = nullptr;
+#ifdef LINUX
+    window = SDL_CreateWindow(
         APP_NAME,
         windowedX,
         windowedY,
         windowedWidth,
         windowedHeight,
-        SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+        SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
+    if (window) {
+        auto vulkanRenderer = std::make_unique<VulkanRenderer>();
+        if (vulkanRenderer->initialize(
+                window,
+                gba.getVramWidth(),
+                gba.getVramHeight(),
+                crtFilterEnabled)) {
+            renderer = std::move(vulkanRenderer);
+            videoRendererName = "Vulkan";
+        } else {
+            std::cerr << "Vulkan renderer unavailable; falling back to OpenGL\n";
+            vulkanRenderer->shutdown();
+            SDL_DestroyWindow(window);
+            window = nullptr;
+        }
+    } else {
+        std::cerr << "Failed to create a Vulkan window; falling back to OpenGL: "
+                  << SDL_GetError() << '\n';
+    }
+#endif
+    if (!renderer) {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+        SDL_GL_SetAttribute(
+            SDL_GL_CONTEXT_PROFILE_MASK,
+            SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        window = SDL_CreateWindow(
+            APP_NAME,
+            windowedX,
+            windowedY,
+            windowedWidth,
+            windowedHeight,
+            SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+        if (window) {
+            auto openGlRenderer = std::make_unique<CrtRenderer>();
+            if (openGlRenderer->initialize(
+                    window,
+                    gba.getVramWidth(),
+                    gba.getVramHeight(),
+                    crtFilterEnabled)) {
+                renderer = std::move(openGlRenderer);
+                videoRendererName = "OpenGL";
+            }
+        }
+    }
     if (!window) {
         std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
         return 1;
     }
+    if (!renderer) {
+        std::cerr << "Failed to initialize a video renderer\n";
+        SDL_DestroyWindow(window);
+        return 1;
+    }
+    std::cerr << "Video renderer: " << videoRendererName << '\n';
     SDL_SetWindowMinimumSize(window, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
     SDL_GetWindowSize(window, &windowedWidth, &windowedHeight);
     SDL_GetWindowPosition(window, &windowedX, &windowedY);
@@ -1148,19 +1207,7 @@ int main(int argc, char* argv[])
         }
     };
 
-    CrtRenderer renderer;
-    if (!renderer.initialize(
-            window,
-            gba.getVramWidth(),
-            gba.getVramHeight(),
-            crtFilterEnabled)) {
-        std::cerr << "Failed to initialize CRT renderer\n";
-        saveConfig();
-        renderer.shutdown();
-        SDL_DestroyWindow(window);
-        return 1;
-    }
-    const bool rendererUsesVsync = renderer.usesVsync();
+    const bool rendererUsesVsync = renderer->usesVsync();
 
     SDL_AudioSpec desired{};
     desired.freq = AUDIO_FREQUENCY;
@@ -1173,7 +1220,7 @@ int main(int argc, char* argv[])
     if (!audioDevice) {
         std::cerr << "SDL_OpenAudioDevice failed: " << SDL_GetError() << '\n';
         saveConfig();
-        renderer.shutdown();
+        renderer->shutdown();
         SDL_DestroyWindow(window);
         return 1;
     }
@@ -1183,7 +1230,7 @@ int main(int argc, char* argv[])
         std::cerr << "SDL opened an incompatible audio format\n";
         SDL_CloseAudioDevice(audioDevice);
         saveConfig();
-        renderer.shutdown();
+        renderer->shutdown();
         SDL_DestroyWindow(window);
         return 1;
     }
@@ -1355,7 +1402,7 @@ int main(int argc, char* argv[])
             audioPlaybackStarted = true;
         }
 
-        renderer.present(gba.getVram());
+        renderer->present(gba.getVram());
 
         if (!rendererUsesVsync && !emulationAdvanced) {
             SDL_Delay(1);
@@ -1365,7 +1412,7 @@ int main(int argc, char* argv[])
     SDL_PauseAudioDevice(audioDevice, 1);
     SDL_CloseAudioDevice(audioDevice);
     saveConfig();
-    renderer.shutdown();
+    renderer->shutdown();
     SDL_DestroyWindow(window);
 
     return exitCode;

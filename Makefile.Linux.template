@@ -10,6 +10,8 @@ SDL_STATIC_LIBRARY := $(SDL_PREFIX)/lib/libSDL2.a
 CXX ?= g++
 CC ?= gcc
 CMAKE ?= cmake
+GLSLANG_VALIDATOR ?= glslangValidator
+SPIRV_OPT ?= spirv-opt
 
 TARGET := ${ExeName}
 BUILD_DIR := build/Linux
@@ -20,11 +22,13 @@ MGBA_RUNTIME_NAME = $(notdir $(shell readlink $(MGBA_LIBRARY) 2>/dev/null))
 STEAM_LIBRARY := steamworks/redistributable_bin/linux64/libsteam_api.so
 STEAM_RUNTIME_LIBRARY := libsteam_api.so
 CPP_SOURCES := src/dewpoint_runtime.cpp src/highscore_store.cpp src/mgbahelper.cpp src/sdlmain.cpp \
-	src/ugc_codec.cpp
+	src/ugc_codec.cpp src/vulkan_renderer.cpp
 C_SOURCES := src/game_rom.c src/lz4/lz4.c src/lz4/lz4frame.c src/lz4/lz4hc.c \
 	src/lz4/xxhash.c
+ASSEMBLY_SOURCES := src/vulkan_shaders.S
 OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(CPP_SOURCES)) \
-	$(patsubst src/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
+	$(patsubst src/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES)) \
+	$(patsubst src/%.S,$(BUILD_DIR)/%.o,$(ASSEMBLY_SOURCES))
 DEPFILES := $(OBJECTS:.o=.d)
 
 SDL_CFLAGS = $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) $(PKG_CONFIG) --cflags sdl2)
@@ -43,7 +47,7 @@ LDFLAGS += -pie -Wl,--as-needed -Wl,--strip-all \
 LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) $(SDL_LIBS) \
 	-static-libgcc -static-libstdc++
 
-.PHONY: all clean debug mgba package
+.PHONY: all clean debug mgba package vulkan-shaders
 
 all: $(TARGET)
 
@@ -64,6 +68,19 @@ $(BUILD_DIR)/%.o: src/%.cpp | $(MGBA_LIBRARY)
 $(BUILD_DIR)/%.o: src/%.c | $(MGBA_LIBRARY)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: src/%.S | $(MGBA_LIBRARY)
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/vulkan_shaders.o: src/shaders/crt.vert.spv src/shaders/crt.frag.spv
+
+vulkan-shaders:
+	@mkdir -p $(BUILD_DIR)/shaders
+	$(GLSLANG_VALIDATOR) -V -Os src/shaders/crt.vert -o $(BUILD_DIR)/shaders/crt.vert.spv
+	$(GLSLANG_VALIDATOR) -V -Os src/shaders/crt.frag -o $(BUILD_DIR)/shaders/crt.frag.spv
+	$(SPIRV_OPT) -O $(BUILD_DIR)/shaders/crt.vert.spv -o src/shaders/crt.vert.spv
+	$(SPIRV_OPT) -O $(BUILD_DIR)/shaders/crt.frag.spv -o src/shaders/crt.frag.spv
 
 $(MGBA_LIBRARY): mgba/CMakeLists.txt
 	@mkdir -p $(MGBA_BUILD_DIR)
