@@ -9,6 +9,7 @@
   - 2: 480×320 (2×)
   - 3: 720×480 (3×)
   - 4: 960×640 (4×)
-- CRT Filter Mode
+- CRT Filter Mode: `-f crt`
+- LCD Filter Mode: `-f lcd`
 - Improved low-latency audio buffering and underrun recovery on Windows, macOS, and Linux
 - Paused emulation while the Steam overlay is open and resumed it when the overlay closes
