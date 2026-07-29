@@ -27,9 +27,11 @@ STEAM_LIBRARY := steamworks/redistributable_bin/osx/libsteam_api.dylib
 STEAM_RUNTIME_LIBRARY := libsteam_api.dylib
 CPP_SOURCES := src/dewpoint_runtime.cpp src/highscore_store.cpp src/mgbahelper.cpp src/sdlmain.cpp \
 	src/ugc_codec.cpp
+OBJCXX_SOURCES := src/metal_renderer.mm
 C_SOURCES := src/game_rom.c src/lz4/lz4.c src/lz4/lz4frame.c src/lz4/lz4hc.c \
 	src/lz4/xxhash.c
 OBJECTS := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(CPP_SOURCES)) \
+	$(patsubst src/%.mm,$(BUILD_DIR)/%.o,$(OBJCXX_SOURCES)) \
 	$(patsubst src/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
 DEPFILES := $(OBJECTS:.o=.d)
 
@@ -50,6 +52,7 @@ LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) \
 	-framework CoreVideo \
 	-framework AudioToolbox \
 	-framework Metal \
+	-framework QuartzCore \
 	-framework Carbon \
 	-framework GameController \
 	-framework CoreHaptics \
@@ -74,6 +77,10 @@ $(STEAM_RUNTIME_LIBRARY): $(STEAM_LIBRARY)
 $(BUILD_DIR)/%.o: src/%.cpp | $(MGBA_LIBRARY)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: src/%.mm | $(MGBA_LIBRARY)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fobjc-arc -c $< -o $@
 
 $(BUILD_DIR)/%.o: src/%.c | $(MGBA_LIBRARY)
 	@mkdir -p $(dir $@)

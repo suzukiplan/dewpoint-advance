@@ -14,3 +14,5 @@
 - Improved low-latency audio buffering and underrun recovery on Windows, macOS, and Linux
 - Paused emulation while the Steam overlay is open and resumed it when the overlay closes
 - Changed sound analog emulation: REAL -> Subtle
+- Supported the Vulkan renderer (Linux)
+- Supported the Metal renderer (macOS)

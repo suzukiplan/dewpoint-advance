@@ -29,6 +29,9 @@
 #include "steam.hpp"
 #include "video_renderer.h"
 #include "vulkan_renderer.h"
+#ifdef __APPLE__
+#include "metal_renderer.h"
+#endif
 
 #include <algorithm>
 #include <cstddef>
@@ -1206,6 +1209,34 @@ int main(int argc, char* argv[])
     SDL_Window* window = nullptr;
     std::unique_ptr<VideoRenderer> renderer;
     const char* videoRendererName = nullptr;
+#ifdef __APPLE__
+    window = SDL_CreateWindow(
+        APP_NAME,
+        windowedX,
+        windowedY,
+        windowedWidth,
+        windowedHeight,
+        SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE | SDL_WINDOW_METAL);
+    if (window) {
+        auto metalRenderer = std::make_unique<MetalRenderer>();
+        if (metalRenderer->initialize(
+                window,
+                gba.getVramWidth(),
+                gba.getVramHeight(),
+                videoFilter)) {
+            renderer = std::move(metalRenderer);
+            videoRendererName = "Metal";
+        } else {
+            std::cerr << "Metal renderer unavailable; falling back to OpenGL\n";
+            metalRenderer->shutdown();
+            SDL_DestroyWindow(window);
+            window = nullptr;
+        }
+    } else {
+        std::cerr << "Failed to create a Metal window; falling back to OpenGL: "
+                  << SDL_GetError() << '\n';
+    }
+#endif
 #ifdef LINUX
     window = SDL_CreateWindow(
         APP_NAME,
