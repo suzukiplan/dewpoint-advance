@@ -273,6 +273,14 @@ When porting Dewpoint Runtime to other platforms, adjust the specifications as a
 
 Under "Stats & Achievements" → "Achievements" in Steamworks, register each Achievement with an API name that matches the text passed to `dpa_achievement_unlock`.
 
+### Launch Options
+
+You can apply a screen filter by setting one of the following launch options:
+
+- `-f no` Raw Pixel / No filter (default)
+- `-f crt` CRT filter
+- `-f lcd` LCD filter
+
 ## How to Create a Package
 
 To create a package, set the distribution information in a package.conf file copied from [./package.conf.model](./package.conf.model).

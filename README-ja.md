@@ -270,6 +270,14 @@ UGC の処理中は値を変更しません。値を変更すると共通 UGC �
 
 Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_unlock` の引数に指定するテキストと一致する API名 で実績を登録してください。
 
+### Launch Options
+
+次の起動オプションを設定することで画面フィルタを適用できます。
+
+- `-f no` Raw Pixel / フィルタなし（デフォルト）
+- `-f crt` CRTフィルタ
+- `-f lcd` LCDフィルタ
+
 ## How to make the Package
 
 パッケージを作成するには [./package.conf.model](./package.conf.model) からコピーして作成した package.conf ファイルに配信情報を設定する必要があります。
