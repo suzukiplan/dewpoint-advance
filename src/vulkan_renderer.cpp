@@ -201,7 +201,7 @@ class VulkanRenderer::Implementation
     struct ShaderConstants {
         float inputSize[2];
         float outputSize[2];
-        int32_t crtEnabled;
+        int32_t filterMode;
     };
 
     VulkanApi api;
@@ -245,7 +245,7 @@ class VulkanRenderer::Implementation
 
     int inputWidth = 0;
     int inputHeight = 0;
-    bool crtEnabled = false;
+    VideoFilter filter = VideoFilter::None;
 
     bool createInstance()
     {
@@ -1355,7 +1355,7 @@ class VulkanRenderer::Implementation
                 static_cast<float>(viewportWidth),
                 static_cast<float>(viewportHeight),
             },
-            crtEnabled ? 1 : 0,
+            static_cast<int32_t>(filter),
         };
         api.vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
         api.vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
@@ -1393,12 +1393,12 @@ class VulkanRenderer::Implementation
         SDL_Window* targetWindow,
         int width,
         int height,
-        bool enableCrt)
+        VideoFilter selectedFilter)
     {
         window = targetWindow;
         inputWidth = width;
         inputHeight = height;
-        crtEnabled = enableCrt;
+        filter = selectedFilter;
 
         if (SDL_Vulkan_LoadLibrary(nullptr) != 0) {
             std::cerr << "SDL_Vulkan_LoadLibrary failed: " << SDL_GetError() << '\n';
@@ -1634,9 +1634,9 @@ bool VulkanRenderer::initialize(
     SDL_Window* window,
     int width,
     int height,
-    bool crtEnabled)
+    VideoFilter filter)
 {
-    return implementation->initialize(window, width, height, crtEnabled);
+    return implementation->initialize(window, width, height, filter);
 }
 
 bool VulkanRenderer::usesVsync() const
@@ -1667,7 +1667,7 @@ VulkanRenderer::VulkanRenderer()
 
 VulkanRenderer::~VulkanRenderer() = default;
 
-bool VulkanRenderer::initialize(SDL_Window*, int, int, bool)
+bool VulkanRenderer::initialize(SDL_Window*, int, int, VideoFilter)
 {
     return false;
 }

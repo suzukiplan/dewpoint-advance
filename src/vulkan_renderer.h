@@ -19,7 +19,7 @@ class VulkanRenderer final : public VideoRenderer
         struct SDL_Window* window,
         int width,
         int height,
-        bool crtEnabled) override;
+        VideoFilter filter) override;
     bool usesVsync() const override;
     void present(const void* pixels) override;
     void shutdown() override;

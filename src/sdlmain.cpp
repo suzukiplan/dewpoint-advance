@@ -106,7 +106,7 @@ constexpr GlEnum GL_UNSIGNED_BYTE_VALUE = 0x1401;
 constexpr GlEnum GL_VERTEX_SHADER_VALUE = 0x8B31;
 constexpr GlEnum GL_CLAMP_TO_EDGE_VALUE = 0x812F;
 
-const char* CRT_VERTEX_SHADER = R"GLSL(
+const char* VIDEO_VERTEX_SHADER = R"GLSL(
 #version 120
 
 attribute vec2 a_position;
@@ -119,18 +119,21 @@ void main()
 }
 )GLSL";
 
-// This is an independent implementation of the crt-geom rendering model. It
-// retains the characteristic linear-light Lanczos filtering, luminance-aware
-// scanline beam, aperture mask, display gamma, curved glass and rounded bezel.
-const char* CRT_FRAGMENT_SHADER = R"GLSL(
+// The CRT path is an independent implementation of the crt-geom rendering
+// model. The LCD path adapts lcd-grid-v2-gba-color.glslp's subpixel response
+// and GBA color transform to this renderer's single-pass GLSL 1.20 pipeline.
+// https://github.com/libretro/glsl-shaders/blob/master/handheld/lcd-grid-v2-gba-color.glslp
+const char* VIDEO_FRAGMENT_SHADER = R"GLSL(
 #version 120
 
 uniform sampler2D u_texture;
 uniform vec2 u_inputSize;
 uniform vec2 u_outputSize;
-uniform int u_crtEnabled;
+uniform int u_filterMode;
 varying vec2 v_texCoord;
 
+const int VIDEO_FILTER_CRT = 1;
+const int VIDEO_FILTER_LCD = 2;
 const float PI = 3.14159265358979323846;
 const float CRT_GAMMA = 2.1;
 const float DISPLAY_GAMMA = 2.2;
@@ -199,19 +202,13 @@ vec3 scanlineBeam(float distance, vec3 color)
     return peak * exp(-0.5 * scaledDistance * scaledDistance);
 }
 
-void main()
+vec3 renderCrt()
 {
-    if (u_crtEnabled == 0) {
-        gl_FragColor = texture2D(u_texture, v_texCoord);
-        return;
-    }
-
     vec2 screenCoord = warp(v_texCoord);
     vec2 coord = (screenCoord - vec2(0.5)) * CONTENT_SCALE + vec2(0.5);
     if (coord.x < 0.0 || coord.x > 1.0 ||
         coord.y < 0.0 || coord.y > 1.0) {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-        return;
+        return vec3(0.0);
     }
 
     vec2 texelPosition = coord * u_inputSize - vec2(0.5);
@@ -250,6 +247,109 @@ void main()
     color *= apertureMask;
     color = pow(clamp(color, 0.0, 1.0), vec3(1.0 / DISPLAY_GAMMA));
     color *= roundedScreenMask(screenCoord);
+    return color;
+}
+
+float lcdSmearXFunction(float z)
+{
+    float z2 = z * z;
+    return z * (1.0 + z2 * (
+        -2.0 / 3.0 + z2 * (
+        -1.0 / 5.0 + z2 * (
+         4.0 / 7.0 + z2 * (
+        -1.0 / 9.0 + z2 * (
+        -2.0 / 11.0 + z2 / 13.0))))));
+}
+
+float lcdSmearYFunction(float z)
+{
+    float z2 = z * z;
+    return z * (1.0 + z2 * z2 * (
+        -4.0 / 5.0 + z2 * (
+         2.0 / 7.0 + z2 * (
+         4.0 / 9.0 + z2 * (
+        -4.0 / 11.0 + z2 / 13.0)))));
+}
+
+float lcdSmearX(float x, float footprint, float radius)
+{
+    float low = clamp((x - footprint * 0.5) / radius, -1.0, 1.0);
+    float high = clamp((x + footprint * 0.5) / radius, -1.0, 1.0);
+    return radius * (lcdSmearXFunction(high) - lcdSmearXFunction(low)) /
+        footprint;
+}
+
+float lcdSmearY(float y, float footprint, float radius)
+{
+    float low = clamp((y - footprint * 0.5) / radius, -1.0, 1.0);
+    float high = clamp((y + footprint * 0.5) / radius, -1.0, 1.0);
+    return radius * (lcdSmearYFunction(high) - lcdSmearYFunction(low)) /
+        footprint;
+}
+
+vec3 sampleLcdTexel(vec2 texel)
+{
+    vec2 clampedTexel = clamp(texel, vec2(0.0), u_inputSize - vec2(1.0));
+    vec2 coord = (clampedTexel + vec2(0.5)) / u_inputSize;
+    return pow(vec3(1.5) * texture2D(u_texture, coord).rgb, vec3(2.2));
+}
+
+vec3 applyGbaColor(vec3 color)
+{
+    color = pow(max(color, vec3(0.0)), vec3(3.2));
+    color = clamp(color * 0.94, 0.0, 1.0);
+    mat3 colorMatrix = mat3(
+         0.82, 0.125, 0.195,
+         0.24, 0.665, 0.075,
+        -0.06, 0.210, 0.730);
+    return pow(clamp(colorMatrix * color, 0.0, 1.0), vec3(1.0 / 2.2));
+}
+
+vec3 renderLcd()
+{
+    vec2 texelPosition = v_texCoord * u_inputSize - vec2(0.4999);
+    vec2 topLeftTexel = floor(texelPosition);
+    vec2 subpixelPosition = texelPosition - topLeftTexel;
+    vec2 sourceFootprint = u_inputSize / u_outputSize;
+
+    float horizontalPosition = subpixelPosition.x * 3.0;
+    float horizontalFootprint = sourceFootprint.x * 3.0;
+    vec3 leftMask = vec3(
+        lcdSmearX(horizontalPosition + 1.0, horizontalFootprint, 1.5),
+        lcdSmearX(horizontalPosition,       horizontalFootprint, 1.5),
+        lcdSmearX(horizontalPosition - 1.0, horizontalFootprint, 1.5));
+    vec3 rightMask = vec3(
+        lcdSmearX(horizontalPosition - 2.0, horizontalFootprint, 1.5),
+        lcdSmearX(horizontalPosition - 3.0, horizontalFootprint, 1.5),
+        lcdSmearX(horizontalPosition - 4.0, horizontalFootprint, 1.5));
+    leftMask = leftMask.bgr;
+    rightMask = rightMask.bgr;
+
+    float topMask =
+        lcdSmearY(subpixelPosition.y, sourceFootprint.y, 0.63);
+    float bottomMask =
+        lcdSmearY(subpixelPosition.y - 1.0, sourceFootprint.y, 0.63);
+
+    vec3 color =
+        sampleLcdTexel(topLeftTexel) * leftMask * topMask +
+        sampleLcdTexel(topLeftTexel + vec2(1.0, 0.0)) * rightMask * topMask +
+        sampleLcdTexel(topLeftTexel + vec2(0.0, 1.0)) * leftMask * bottomMask +
+        sampleLcdTexel(topLeftTexel + vec2(1.0, 1.0)) * rightMask * bottomMask;
+    color *= pow(vec3(0.75), vec3(2.2));
+    color = pow(max(color, vec3(0.0)), vec3(1.0 / 2.2));
+    return applyGbaColor(color);
+}
+
+void main()
+{
+    vec3 color;
+    if (u_filterMode == VIDEO_FILTER_CRT) {
+        color = renderCrt();
+    } else if (u_filterMode == VIDEO_FILTER_LCD) {
+        color = renderLcd();
+    } else {
+        color = texture2D(u_texture, v_texCoord).rgb;
+    }
     gl_FragColor = vec4(color, 1.0);
 }
 )GLSL";
@@ -363,7 +463,7 @@ struct GlApi {
     }
 };
 
-class CrtRenderer final : public VideoRenderer
+class OpenGlRenderer final : public VideoRenderer
 {
   private:
     SDL_Window* window;
@@ -375,7 +475,7 @@ class CrtRenderer final : public VideoRenderer
     GlInt positionLocation;
     GlInt inputSizeLocation;
     GlInt outputSizeLocation;
-    GlInt crtEnabledLocation;
+    GlInt filterModeLocation;
     int inputWidth;
     int inputHeight;
     bool vsyncEnabled;
@@ -384,7 +484,7 @@ class CrtRenderer final : public VideoRenderer
     {
         *shader = gl.createShader(type);
         if (!*shader) {
-            std::cerr << "Failed to create CRT shader\n";
+            std::cerr << "Failed to create video shader\n";
             return false;
         }
 
@@ -401,7 +501,7 @@ class CrtRenderer final : public VideoRenderer
         gl.getShaderiv(*shader, GL_INFO_LOG_LENGTH_VALUE, &logLength);
         std::vector<GlChar> log(static_cast<size_t>(std::max(logLength, 1)));
         gl.getShaderInfoLog(*shader, static_cast<GlSizei>(log.size()), nullptr, log.data());
-        std::cerr << "Failed to compile CRT shader: " << log.data() << '\n';
+        std::cerr << "Failed to compile video shader: " << log.data() << '\n';
         gl.deleteShader(*shader);
         *shader = 0;
         return false;
@@ -411,8 +511,8 @@ class CrtRenderer final : public VideoRenderer
     {
         GlUint vertexShader = 0;
         GlUint fragmentShader = 0;
-        if (!compileShader(GL_VERTEX_SHADER_VALUE, CRT_VERTEX_SHADER, &vertexShader) ||
-            !compileShader(GL_FRAGMENT_SHADER_VALUE, CRT_FRAGMENT_SHADER, &fragmentShader)) {
+        if (!compileShader(GL_VERTEX_SHADER_VALUE, VIDEO_VERTEX_SHADER, &vertexShader) ||
+            !compileShader(GL_FRAGMENT_SHADER_VALUE, VIDEO_FRAGMENT_SHADER, &fragmentShader)) {
             if (vertexShader) {
                 gl.deleteShader(vertexShader);
             }
@@ -421,7 +521,7 @@ class CrtRenderer final : public VideoRenderer
 
         program = gl.createProgram();
         if (!program) {
-            std::cerr << "Failed to create CRT shader program\n";
+            std::cerr << "Failed to create video shader program\n";
             gl.deleteShader(fragmentShader);
             gl.deleteShader(vertexShader);
             return false;
@@ -443,7 +543,7 @@ class CrtRenderer final : public VideoRenderer
                 static_cast<GlSizei>(log.size()),
                 nullptr,
                 log.data());
-            std::cerr << "Failed to link CRT shader: " << log.data() << '\n';
+            std::cerr << "Failed to link video shader: " << log.data() << '\n';
             return false;
         }
 
@@ -451,10 +551,10 @@ class CrtRenderer final : public VideoRenderer
         const GlInt textureLocation = gl.getUniformLocation(program, "u_texture");
         inputSizeLocation = gl.getUniformLocation(program, "u_inputSize");
         outputSizeLocation = gl.getUniformLocation(program, "u_outputSize");
-        crtEnabledLocation = gl.getUniformLocation(program, "u_crtEnabled");
+        filterModeLocation = gl.getUniformLocation(program, "u_filterMode");
         if (positionLocation < 0 || textureLocation < 0 ||
-            inputSizeLocation < 0 || outputSizeLocation < 0 || crtEnabledLocation < 0) {
-            std::cerr << "Failed to locate CRT shader inputs\n";
+            inputSizeLocation < 0 || outputSizeLocation < 0 || filterModeLocation < 0) {
+            std::cerr << "Failed to locate video shader inputs\n";
             return false;
         }
 
@@ -464,12 +564,12 @@ class CrtRenderer final : public VideoRenderer
     }
 
   public:
-    CrtRenderer()
-        : window(nullptr), context(nullptr), gl{}, program(0), texture(0), vertexBuffer(0), positionLocation(-1), inputSizeLocation(-1), outputSizeLocation(-1), crtEnabledLocation(-1), inputWidth(0), inputHeight(0), vsyncEnabled(false)
+    OpenGlRenderer()
+        : window(nullptr), context(nullptr), gl{}, program(0), texture(0), vertexBuffer(0), positionLocation(-1), inputSizeLocation(-1), outputSizeLocation(-1), filterModeLocation(-1), inputWidth(0), inputHeight(0), vsyncEnabled(false)
     {
     }
 
-    ~CrtRenderer() override
+    ~OpenGlRenderer() override
     {
         shutdown();
     }
@@ -478,7 +578,7 @@ class CrtRenderer final : public VideoRenderer
         SDL_Window* targetWindow,
         int width,
         int height,
-        bool crtEnabled) override
+        VideoFilter filter) override
     {
         window = targetWindow;
         inputWidth = width;
@@ -504,7 +604,7 @@ class CrtRenderer final : public VideoRenderer
         if (!gl.load() || !createProgram()) {
             return false;
         }
-        gl.uniform1i(crtEnabledLocation, crtEnabled ? 1 : 0);
+        gl.uniform1i(filterModeLocation, static_cast<GlInt>(filter));
 
         gl.activeTexture(GL_TEXTURE0_VALUE);
         gl.genTextures(1, &texture);
@@ -872,7 +972,7 @@ void updateCursorVisibility(SDL_Window* window)
 void printUsage(const char* executable)
 {
     std::cerr << "Usage: " << executable
-              << " [-s <save.dat>] [-c <config.dat>] [-f <crt|no>] [rom.gba]\n";
+              << " [-s <save.dat>] [-c <config.dat>] [-f <crt|lcd|no>] [rom.gba]\n";
 }
 
 bool getApplicationInstallDirectory(std::string* installDirectory)
@@ -966,7 +1066,7 @@ int main(int argc, char* argv[])
     std::string configPath = "config.dat";
     bool usesDefaultSramPath = true;
     bool usesDefaultConfigPath = true;
-    bool crtFilterEnabled = false;
+    VideoFilter videoFilter = VideoFilter::None;
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
         if (argument == "-s" || argument == "-c" || argument == "-f") {
@@ -984,9 +1084,11 @@ int main(int argc, char* argv[])
                 } else {
                     const std::string filter = argv[i];
                     if (filter == "crt") {
-                        crtFilterEnabled = true;
+                        videoFilter = VideoFilter::Crt;
+                    } else if (filter == "lcd") {
+                        videoFilter = VideoFilter::Lcd;
                     } else if (filter == "no") {
-                        crtFilterEnabled = false;
+                        videoFilter = VideoFilter::None;
                     } else {
                         std::cerr << "Unknown video filter: " << filter << '\n';
                         printUsage(argv[0]);
@@ -1118,7 +1220,7 @@ int main(int argc, char* argv[])
                 window,
                 gba.getVramWidth(),
                 gba.getVramHeight(),
-                crtFilterEnabled)) {
+                videoFilter)) {
             renderer = std::move(vulkanRenderer);
             videoRendererName = "Vulkan";
         } else {
@@ -1147,12 +1249,12 @@ int main(int argc, char* argv[])
             windowedHeight,
             SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
         if (window) {
-            auto openGlRenderer = std::make_unique<CrtRenderer>();
+            auto openGlRenderer = std::make_unique<OpenGlRenderer>();
             if (openGlRenderer->initialize(
                     window,
                     gba.getVramWidth(),
                     gba.getVramHeight(),
-                    crtFilterEnabled)) {
+                    videoFilter)) {
                 renderer = std::move(openGlRenderer);
                 videoRendererName = "OpenGL";
             }
