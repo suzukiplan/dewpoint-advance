@@ -23,6 +23,10 @@ RUN apt-get update && apt-get install -y \
   ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
+# Fail while building the image, rather than later while compiling the Linux
+# Vulkan renderer, if the Vulkan development headers are unavailable.
+RUN printf '#include <vulkan/vulkan.h>\n' | g++ -x c++ -E - >/dev/null
+
 # Git LFS (recommended / reliable for Ubuntu 18.04)
 RUN apt-get update && apt-get install -y --no-install-recommends \
   curl ca-certificates gnupg \
