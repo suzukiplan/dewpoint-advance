@@ -65,36 +65,18 @@ class AnalogEffect
 {
   private:
     static constexpr size_t CHANNEL_COUNT = 2;
-    static constexpr float HP_ALPHA = 0.9971f;
-    static constexpr float LP_ALPHA = 0.62f;
+    static constexpr float HP_ALPHA = 0.9965f;
+    static constexpr float LP_ALPHA = 0.34f;
     static constexpr float ASYM_POS_GAIN = 1.000f;
-    static constexpr float ASYM_NEG_GAIN = 0.996f;
-    static constexpr float ASYM_POS_CURVE = 0.006f;
-    static constexpr float ASYM_NEG_CURVE = 0.009f;
-    static constexpr float POST_LP_ALPHA = 0.94f;
-    static constexpr float NOTCH_FREQUENCY_HZ = 4900.0f;
-    static constexpr float NOTCH_Q = 9.0f;
-    static constexpr float NOTCH_MIX = 0.020f;
-    static constexpr float SATURATOR_DRIVE = 1.006f;
-    static constexpr float OUTPUT_GAIN = 0.940f;
-    static constexpr float PI = 3.14159265358979323846f;
-
-    struct NotchCoefficients {
-        float b0;
-        float b1;
-        float b2;
-        float a1;
-        float a2;
-    } notch;
+    static constexpr float ASYM_NEG_GAIN = 0.994f;
+    static constexpr float ASYM_POS_CURVE = 0.010f;
+    static constexpr float ASYM_NEG_CURVE = 0.016f;
+    static constexpr float SATURATOR_DRIVE = 1.05f;
+    static constexpr float OUTPUT_GAIN = 0.985f;
 
     std::array<float, CHANNEL_COUNT> hpLastInput;
     std::array<float, CHANNEL_COUNT> hpLastOutput;
     std::array<float, CHANNEL_COUNT> lpLastOutput;
-    std::array<float, CHANNEL_COUNT> postLpLastOutput;
-    std::array<float, CHANNEL_COUNT> notchInput1;
-    std::array<float, CHANNEL_COUNT> notchInput2;
-    std::array<float, CHANNEL_COUNT> notchOutput1;
-    std::array<float, CHANNEL_COUNT> notchOutput2;
 
     static float clampUnit(float value)
     {
@@ -105,18 +87,6 @@ class AnalogEffect
             return 1.0f;
         }
         return value;
-    }
-
-    float applyNotch(size_t channel, float value)
-    {
-        const float filtered = (notch.b0 * value) + (notch.b1 * notchInput1[channel]) + (notch.b2 * notchInput2[channel]) - (notch.a1 * notchOutput1[channel]) - (notch.a2 * notchOutput2[channel]);
-
-        notchInput2[channel] = notchInput1[channel];
-        notchInput1[channel] = value;
-        notchOutput2[channel] = notchOutput1[channel];
-        notchOutput1[channel] = filtered;
-
-        return (value * (1.0f - NOTCH_MIX)) + (filtered * NOTCH_MIX);
     }
 
     float apply(size_t channel, float sample)
@@ -138,39 +108,18 @@ class AnalogEffect
 
         const float driven = value * SATURATOR_DRIVE;
         value = driven / (1.0f + ((SATURATOR_DRIVE - 1.0f) * std::fabs(driven)));
-
-        float& postLowPass = postLpLastOutput[channel];
-        postLowPass += POST_LP_ALPHA * (value - postLowPass);
-        value = applyNotch(channel, postLowPass) * OUTPUT_GAIN;
+        value *= OUTPUT_GAIN;
         return clampUnit(value);
     }
 
   public:
-    AnalogEffect()
-        : notch{}
-    {
-        const float omega = 2.0f * PI * NOTCH_FREQUENCY_HZ / static_cast<float>(OUTPUT_SAMPLE_RATE);
-        const float alpha = std::sin(omega) / (2.0f * NOTCH_Q);
-        const float cosOmega = std::cos(omega);
-        const float a0 = 1.0f + alpha;
-        notch.b0 = 1.0f / a0;
-        notch.b1 = (-2.0f * cosOmega) / a0;
-        notch.b2 = 1.0f / a0;
-        notch.a1 = (-2.0f * cosOmega) / a0;
-        notch.a2 = (1.0f - alpha) / a0;
-        reset();
-    }
+    AnalogEffect() { reset(); }
 
     void reset()
     {
         hpLastInput.fill(0.0f);
         hpLastOutput.fill(0.0f);
         lpLastOutput.fill(0.0f);
-        postLpLastOutput.fill(0.0f);
-        notchInput1.fill(0.0f);
-        notchInput2.fill(0.0f);
-        notchOutput1.fill(0.0f);
-        notchOutput2.fill(0.0f);
     }
 
     void process(int16_t* samples, size_t frames)
