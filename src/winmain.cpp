@@ -14,6 +14,7 @@
 
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
+#include "log_timestamp.h"
 #include "mgbahelper.h"
 #include "pathutil.h"
 #include "steam.hpp"
@@ -33,7 +34,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <fstream>
 #include <limits>
 #include <mutex>
@@ -420,18 +420,7 @@ void writeLogV(const char* format, va_list arguments)
         return;
     }
 
-    std::time_t now = std::time(nullptr);
-    std::tm local{};
-    localtime_s(&local, &now);
-    std::fprintf(
-        file,
-        "%04d/%02d/%02d %02d:%02d:%02d ",
-        local.tm_year + 1900,
-        local.tm_mon + 1,
-        local.tm_mday,
-        local.tm_hour,
-        local.tm_min,
-        local.tm_sec);
+    DewpointLog::writeTimestamp(file);
     std::vfprintf(file, format, arguments);
     std::fputc('\n', file);
     std::fclose(file);

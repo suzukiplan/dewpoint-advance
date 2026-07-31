@@ -24,6 +24,7 @@
  */
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
+#include "log_timestamp.h"
 #include "mgbahelper.h"
 #include "pathutil.h"
 #include "steam.hpp"
@@ -35,6 +36,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
@@ -763,22 +765,54 @@ static_assert(sizeof(WindowConfig) == 20, "WindowConfig must use five 4-byte fie
 class ScopedLogger
 {
   private:
-    mStandardLogger logger;
+    mLogger logger;
+    mLogFilter filter;
+    std::streambuf* standardOut;
+    std::streambuf* standardError;
+    DewpointLog::TimestampStreamBuf timestampedOut;
+    DewpointLog::TimestampStreamBuf timestampedError;
+
+    static void log(
+        mLogger*,
+        int category,
+        mLogLevel,
+        const char* format,
+        va_list arguments)
+    {
+        char message[2048]{};
+        std::vsnprintf(message, sizeof(message), format, arguments);
+        const char* categoryName = mLogCategoryName(category);
+        std::cout << (categoryName ? categoryName : "unknown") << ": " << message << '\n';
+    }
 
   public:
     ScopedLogger()
-        : logger{}
+        : logger{}, filter{}, standardOut(std::cout.rdbuf()), standardError(std::cerr.rdbuf()),
+          timestampedOut(standardOut), timestampedError(standardError)
     {
-        mStandardLoggerInit(&logger);
-        logger.logToStdout = true;
-        logger.d.filter->defaultLevels = mLOG_FATAL | mLOG_ERROR | mLOG_WARN | mLOG_GAME_ERROR;
-        mLogSetDefaultLogger(&logger.d);
+        std::cout.rdbuf(&timestampedOut);
+        std::cerr.rdbuf(&timestampedError);
+        mLogFilterInit(&filter);
+        filter.defaultLevels = mLOG_FATAL | mLOG_ERROR | mLOG_WARN | mLOG_GAME_ERROR;
+        logger.log = log;
+        logger.filter = &filter;
+        mLogSetDefaultLogger(&logger);
     }
 
     ~ScopedLogger()
     {
         mLogSetDefaultLogger(nullptr);
-        mStandardLoggerDeinit(&logger);
+        mLogFilterDeinit(&filter);
+        std::cout.flush();
+        std::cerr.flush();
+        std::cout.rdbuf(standardOut);
+        std::cerr.rdbuf(standardError);
+    }
+
+    void enableTimestamps()
+    {
+        timestampedOut.enable();
+        timestampedError.enable();
     }
 };
 
@@ -1118,6 +1152,7 @@ int main(int argc, char* argv[])
             std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
             return 1;
         }
+        logger.enableTimestamps();
         logsRedirected = true;
     }
 
@@ -1156,6 +1191,7 @@ int main(int argc, char* argv[])
                 std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
                 return 1;
             }
+            logger.enableTimestamps();
         }
         if ((usesDefaultSramPath || usesDefaultConfigPath) &&
             !configureSteamSavePaths(

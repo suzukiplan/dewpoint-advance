@@ -1,5 +1,9 @@
 # Change Log
 
+## Version 1.2.0
+
+- Corrected the log.txt record format: `YYYY.MM.DD hh:mm:ss Log record`
+
 ## Version 1.1.0
 
 - Fixed the window aspect ratio to 24:16
