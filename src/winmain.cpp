@@ -14,6 +14,7 @@
 
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
+#include "keymap.h"
 #include "log_timestamp.h"
 #include "mgbahelper.h"
 #include "pathutil.h"
@@ -28,6 +29,7 @@
 #include <dsound.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdarg>
 #include <cctype>
 #include <cstdio>
@@ -352,6 +354,38 @@ std::string currentDirectory()
     return buffer.data();
 }
 
+bool getApplicationInstallDirectory(std::string* directory)
+{
+    if (!directory) {
+        return false;
+    }
+    std::vector<char> buffer(1024);
+    for (;;) {
+        const DWORD length =
+            GetModuleFileNameA(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (!length) {
+            return false;
+        }
+        if (static_cast<size_t>(length) < buffer.size() && buffer[length] == '\0') {
+            const std::string executable(buffer.data(), length);
+            const size_t separator = executable.find_last_of("/\\");
+            if (separator == std::string::npos) {
+                return false;
+            }
+            if (separator == 2 && executable.size() >= 3 && executable[1] == ':') {
+                *directory = executable.substr(0, 3);
+            } else {
+                *directory = executable.substr(0, separator);
+            }
+            return !directory->empty();
+        }
+        if (buffer.size() >= 32768) {
+            return false;
+        }
+        buffer.resize(std::min<size_t>(buffer.size() * 2, 32768));
+    }
+}
+
 bool getHighScoreStorageDirectory(std::string* directory)
 {
     if (!directory) {
@@ -593,6 +627,38 @@ bool getSteamInstallDirectory(std::string* installDirectory)
     }
     *installDirectory = pathBuffer.data();
     return true;
+}
+
+DewpointKeyMap::Config loadKeyMapConfig(const std::string& installDirectory)
+{
+    DewpointKeyMap::Config config = DewpointKeyMap::defaultConfig();
+    if (installDirectory.empty()) {
+        writeLog("Application installation directory is unavailable; using default key assignments");
+        return config;
+    }
+
+    const std::string path = DewpointPath::join(installDirectory, "keymap.ini");
+    std::vector<std::string> diagnostics;
+    std::string errorMessage;
+    const DewpointKeyMap::LoadResult result =
+        DewpointKeyMap::load(path, &config, &diagnostics, &errorMessage);
+    for (const std::string& diagnostic : diagnostics) {
+        writeLog("Invalid key map %s: %s", path.c_str(), diagnostic.c_str());
+    }
+    if (result == DewpointKeyMap::LoadResult::Missing) {
+        if (!DewpointKeyMap::writeDefault(path, &errorMessage)) {
+            writeLog(
+                "Failed to create default key map %s: %s; using default key assignments",
+                path.c_str(),
+                errorMessage.c_str());
+        }
+    } else if (result == DewpointKeyMap::LoadResult::Unreadable) {
+        writeLog(
+            "Failed to read key map %s: %s; using default key assignments",
+            path.c_str(),
+            errorMessage.c_str());
+    }
+    return config;
 }
 
 bool configureSteamSavePaths(
@@ -1831,21 +1897,109 @@ bool keyPressed(int virtualKey)
     return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 }
 
+bool resolveWindowsKey(const DewpointKeyMap::Binding& binding, HKL layout, int* virtualKey)
+{
+    using DewpointKeyMap::SpecialKey;
+    switch (binding.special) {
+        case SpecialKey::Up: *virtualKey = VK_UP; return true;
+        case SpecialKey::Down: *virtualKey = VK_DOWN; return true;
+        case SpecialKey::Left: *virtualKey = VK_LEFT; return true;
+        case SpecialKey::Right: *virtualKey = VK_RIGHT; return true;
+        case SpecialKey::Enter: *virtualKey = VK_RETURN; return true;
+        case SpecialKey::Escape: *virtualKey = VK_ESCAPE; return true;
+        case SpecialKey::Tab: *virtualKey = VK_TAB; return true;
+        case SpecialKey::Space: *virtualKey = VK_SPACE; return true;
+        case SpecialKey::LeftShift: *virtualKey = VK_LSHIFT; return true;
+        case SpecialKey::RightShift: *virtualKey = VK_RSHIFT; return true;
+        case SpecialKey::None: break;
+    }
+
+    const SHORT translated = VkKeyScanExA(binding.character, layout);
+    if (translated == -1) {
+        return false;
+    }
+    const WORD translation = static_cast<WORD>(translated);
+    if (HIBYTE(translation) != 0) {
+        return false;
+    }
+    *virtualKey = LOBYTE(translation);
+    return true;
+}
+
+class WindowsKeyMap
+{
+  private:
+    DewpointKeyMap::Config config;
+    std::array<int, DewpointKeyMap::BUTTON_COUNT> virtualKeys;
+    HKL layout;
+    bool layoutInitialized;
+
+  public:
+    explicit WindowsKeyMap(const DewpointKeyMap::Config& config)
+        : config(config), virtualKeys{}, layout(nullptr), layoutInitialized(false)
+    {
+        refresh();
+    }
+
+    void refresh()
+    {
+        const HKL currentLayout = GetKeyboardLayout(0);
+        if (layoutInitialized && layout == currentLayout) {
+            return;
+        }
+        layout = currentLayout;
+        layoutInitialized = true;
+
+        const DewpointKeyMap::Config defaults = DewpointKeyMap::defaultConfig();
+        for (size_t index = 0; index < DewpointKeyMap::BUTTON_COUNT; ++index) {
+            if (resolveWindowsKey(config.bindings[index], layout, &virtualKeys[index])) {
+                continue;
+            }
+            const auto button = static_cast<DewpointKeyMap::Button>(index);
+            writeLog(
+                "Invalid key assignment for %s in the current keyboard layout: %s; using %s",
+                DewpointKeyMap::buttonName(button),
+                DewpointKeyMap::bindingName(config.bindings[index]).c_str(),
+                DewpointKeyMap::bindingName(defaults.bindings[index]).c_str());
+            if (!resolveWindowsKey(defaults.bindings[index], layout, &virtualKeys[index])) {
+                virtualKeys[index] = static_cast<unsigned char>(defaults.bindings[index].character);
+            }
+        }
+    }
+
+    int key(DewpointKeyMap::Button button) const
+    {
+        return virtualKeys[static_cast<size_t>(button)];
+    }
+};
+
 void updateGbaKeyState(
     mGBAHelper::KeyState* state,
     bool keyboardEnabled,
-    const CSteam::ButtonState& steamState)
+    const CSteam::ButtonState& steamState,
+    WindowsKeyMap* keyMap)
 {
-    state->up = (keyboardEnabled && keyPressed(VK_UP)) || steamState.up;
-    state->down = (keyboardEnabled && keyPressed(VK_DOWN)) || steamState.down;
-    state->left = (keyboardEnabled && keyPressed(VK_LEFT)) || steamState.left;
-    state->right = (keyboardEnabled && keyPressed(VK_RIGHT)) || steamState.right;
-    state->a = (keyboardEnabled && keyPressed('X')) || steamState.a;
-    state->b = (keyboardEnabled && keyPressed('Z')) || steamState.b;
-    state->l = (keyboardEnabled && keyPressed('A')) || steamState.l;
-    state->r = (keyboardEnabled && keyPressed('S')) || steamState.r;
-    state->start = (keyboardEnabled && keyPressed(VK_SPACE)) || steamState.start;
-    state->select = (keyboardEnabled && keyPressed(VK_ESCAPE)) || steamState.select;
+    keyMap->refresh();
+    state->up =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::Up))) || steamState.up;
+    state->down =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::Down))) || steamState.down;
+    state->left =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::Left))) || steamState.left;
+    state->right =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::Right))) || steamState.right;
+    state->a =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::A))) || steamState.a;
+    state->b =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::B))) || steamState.b;
+    state->l =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::L))) || steamState.l;
+    state->r =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::R))) || steamState.r;
+    state->start =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::Start))) || steamState.start;
+    state->select =
+        (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::Select))) || steamState.select;
 }
 
 void printUsage(const char* executable)
@@ -1865,6 +2019,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     const std::string launchDirectory = currentDirectory();
     selectLogPath(launchDirectory, true);
     writeLog("Launching %s %s for Windows", APP_NAME, APP_VERSION);
+
+    std::string applicationInstallDirectory;
+    if (!getApplicationInstallDirectory(&applicationInstallDirectory)) {
+        writeLog("Failed to locate the application installation directory; using default key assignments");
+    }
 
     ScopedLogger logger;
     std::string romPath;
@@ -1928,28 +2087,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
                 usesDefaultConfigPath,
                 &sramPath,
                 &configPath);
-        } else if (!selectLogPath(installDirectory, true)) {
-            writeLog(
-                "Failed to prepare the Steam log file; falling back to the current directory for logs and default save files: %s",
-                launchDirectory.c_str());
-            useCurrentDirectoryForDefaultPaths(
-                launchDirectory,
-                usesDefaultSramPath,
-                usesDefaultConfigPath,
-                &sramPath,
-                &configPath);
         } else {
-            writeLog("Launching %s %s for Windows", APP_NAME, APP_VERSION);
-            if ((usesDefaultSramPath || usesDefaultConfigPath) &&
-                !configureSteamSavePaths(
-                    installDirectory,
-                    usesDefaultSramPath,
-                    usesDefaultConfigPath,
-                    &sramPath,
-                    &configPath)) {
-                selectLogPath(launchDirectory, false);
+            applicationInstallDirectory = installDirectory;
+            if (!selectLogPath(installDirectory, true)) {
                 writeLog(
-                    "Failed to prepare the Steam save directory; falling back to the current directory for logs and default save files: %s",
+                    "Failed to prepare the Steam log file; falling back to the current directory for logs and default save files: %s",
                     launchDirectory.c_str());
                 useCurrentDirectoryForDefaultPaths(
                     launchDirectory,
@@ -1957,9 +2099,32 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
                     usesDefaultConfigPath,
                     &sramPath,
                     &configPath);
+            } else {
+                writeLog("Launching %s %s for Windows", APP_NAME, APP_VERSION);
+                if ((usesDefaultSramPath || usesDefaultConfigPath) &&
+                    !configureSteamSavePaths(
+                        installDirectory,
+                        usesDefaultSramPath,
+                        usesDefaultConfigPath,
+                        &sramPath,
+                        &configPath)) {
+                    selectLogPath(launchDirectory, false);
+                    writeLog(
+                        "Failed to prepare the Steam save directory; falling back to the current directory for logs and default save files: %s",
+                        launchDirectory.c_str());
+                    useCurrentDirectoryForDefaultPaths(
+                        launchDirectory,
+                        usesDefaultSramPath,
+                        usesDefaultConfigPath,
+                        &sramPath,
+                        &configPath);
+                }
             }
         }
     }
+
+    const DewpointKeyMap::Config keyMapConfig = loadKeyMapConfig(applicationInstallDirectory);
+    WindowsKeyMap keyMap(keyMapConfig);
 
     std::vector<uint8_t> rom;
     const uint8_t* romData = game_rom;
@@ -2077,7 +2242,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
                 break;
         }
         const bool keyboardEnabled = GetForegroundWindow() == window && !IsIconic(window);
-        updateGbaKeyState(&gba.keyState, keyboardEnabled, steamInput.buttonState);
+        updateGbaKeyState(&gba.keyState, keyboardEnabled, steamInput.buttonState, &keyMap);
         if (dewpoint.takeExitRequest(&exitCode)) {
             break;
         }

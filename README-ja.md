@@ -112,6 +112,19 @@ Windows ランタイムは Direct3D 9 と DirectSound 8 を使用し、SDL2 に�
 - Linux: Super+R でリセット、Super+P でハードウェアポーズ、Super+Q で電源OFF
 - Windows: Ctrl+R でリセット、Ctrl+P でハードウェアポーズ、F11 または Alt+Enter でフルスクリーン切り替え
 
+起動時にインストール先の `keymap.ini` を読み込みます。ファイルがない場合は上記の
+デフォルト割り当てで作成を試みます。読み込みまたは作成に失敗しても、ゲームは
+デフォルト割り当てで起動します。
+
+設定は `ボタン = キー` 形式で、大文字と小文字を区別しません。ボタン名は
+`UP`, `DOWN`, `LEFT`, `RIGHT`, `A`, `B`, `L`, `R`, `START`, `SELECT` です。
+キーには、現在のキーボードレイアウトで修飾キーなしに入力できる ASCII 英字・記号、
+または `up`, `down`, `left`, `right`, `enter`/`return`, `esc`/`escape`, `tab`,
+`spc`/`space`, `lshift`, `rshift` を指定できます。数字、ファンクションキー、
+Shift 等を併用しないと入力できない記号は指定できません。設定は物理キー位置ではなく、
+現在のレイアウト上の文字を表します。`;` は空白とタブを除いた行頭にある場合だけコメントとして扱われるため、
+`B = ;` のように値として使用できます。
+
 ## Dewpoint SDK
 
 - [devkitPro](https://github.com/devkitPro/) で作成したGBAのプロジェクトに利用できます。

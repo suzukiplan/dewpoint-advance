@@ -16,6 +16,7 @@ OBJECTS = \
 	$(BUILD_DIR)\winmain.obj \
 	$(BUILD_DIR)\dewpoint_runtime.obj \
 	$(BUILD_DIR)\highscore_store.obj \
+	$(BUILD_DIR)\keymap.obj \
 	$(BUILD_DIR)\mgbahelper.obj \
 	$(BUILD_DIR)\ugc_codec.obj \
 	$(BUILD_DIR)\lz4.obj \
@@ -41,7 +42,7 @@ $(EXENAME): mgba $(OBJECTS) $(STEAM_LIBRARY) "$(ICON_FILE)" $(SETICON)
 	$(SETICON) "$(ICON_FILE)" "$@"
 
 
-$(BUILD_DIR)\winmain.obj: src\winmain.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\log_timestamp.h src\mgbahelper.h src\pathutil.h src\steam.hpp src\video_filter.h
+$(BUILD_DIR)\winmain.obj: src\winmain.cpp src\dewpoint_runtime.h src\dewpoint_define.h src\keymap.h src\log_timestamp.h src\mgbahelper.h src\pathutil.h src\steam.hpp src\video_filter.h
 	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
 	CL $(CXXFLAGS) /c src\winmain.cpp /Fo$@
 
@@ -52,6 +53,10 @@ $(BUILD_DIR)\dewpoint_runtime.obj: src\dewpoint_runtime.cpp src\dewpoint_runtime
 $(BUILD_DIR)\highscore_store.obj: src\highscore_store.cpp src\highscore_store.h src\pathutil.h
 	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
 	CL $(CXXFLAGS) /c src\highscore_store.cpp /Fo$@
+
+$(BUILD_DIR)\keymap.obj: src\keymap.cpp src\keymap.h src\pathutil.h
+	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
+	CL $(CXXFLAGS) /c src\keymap.cpp /Fo$@
 
 $(BUILD_DIR)\mgbahelper.obj: src\mgbahelper.cpp src\mgbahelper.h src\pathutil.h
 	IF NOT EXIST $(BUILD_DIR) MKDIR $(BUILD_DIR)
@@ -99,6 +104,7 @@ package: clean all
 	COPY /Y $(STEAM_RUNTIME) $(RELEASE_DIR)
 	COPY /Y vdf\*.vdf $(RELEASE_DIR)
 	COPY /Y LICENSE*.txt $(RELEASE_DIR)
+	COPY /Y keymap.ini $(RELEASE_DIR)
 	POWERSHELL -NoProfile -Command "if (Test-Path -LiteralPath '$(RELEASE_ZIP)') { Remove-Item -LiteralPath '$(RELEASE_ZIP)' -Force }; Compress-Archive -Path '$(RELEASE_DIR)\*' -DestinationPath '$(RELEASE_ZIP)' -Force"
 
 .PHONY: all clean debug mgba mgba-configure package

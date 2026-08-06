@@ -3,6 +3,7 @@
 ## Version 1.2.0
 
 - Corrected the log.txt record format: `YYYY.MM.DD hh:mm:ss Log record`
+- Supported the key mapping function (keymap.ini)
 
 ## Version 1.1.0
 

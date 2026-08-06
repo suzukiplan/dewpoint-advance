@@ -5,7 +5,7 @@ CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic
 CFLAGS ?= -O2 -g
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic
 
-TARGETS := highscore_store_test log_timestamp_test ugc_codec_test
+TARGETS := highscore_store_test keymap_test log_timestamp_test ugc_codec_test
 CODEC_BUILD_DIR := build
 CODEC_OBJECTS := $(CODEC_BUILD_DIR)/ugc_codec.o \
 	$(CODEC_BUILD_DIR)/lz4.o \
@@ -19,6 +19,9 @@ all: $(TARGETS)
 
 highscore_store_test: highscore_store_test.cpp ../src/highscore_store.cpp ../src/highscore_store.h ../src/pathutil.h
 	$(CXX) $(CXXFLAGS) -I../src highscore_store_test.cpp ../src/highscore_store.cpp -o $@
+
+keymap_test: keymap_test.cpp ../src/keymap.cpp ../src/keymap.h ../src/pathutil.h
+	$(CXX) $(CXXFLAGS) -I../src keymap_test.cpp ../src/keymap.cpp -o $@
 
 log_timestamp_test: log_timestamp_test.cpp ../src/log_timestamp.h
 	$(CXX) $(CXXFLAGS) -I../src log_timestamp_test.cpp -o $@
@@ -36,6 +39,7 @@ $(CODEC_BUILD_DIR)/%.o: ../src/lz4/%.c
 
 test: $(TARGETS)
 	./highscore_store_test
+	./keymap_test
 	./log_timestamp_test
 	./ugc_codec_test
 

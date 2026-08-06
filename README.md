@@ -113,6 +113,18 @@ The keyboard mappings are as follows:
 - Linux: Super+R to reset, Super+P to pause the hardware, and Super+Q to power off
 - Windows: Ctrl+R to reset, Ctrl+P to pause the hardware, and F11 or Alt+Enter to toggle fullscreen mode
 
+At startup, the runtime reads `keymap.ini` from the application installation directory. If the file
+does not exist, it attempts to create it with the default mappings above. A read or write failure does
+not prevent startup; the runtime continues with the default mappings.
+
+Each setting uses the case-insensitive `button = key` form. Valid button names are `UP`, `DOWN`,
+`LEFT`, `RIGHT`, `A`, `B`, `L`, `R`, `START`, and `SELECT`. A key may be an ASCII letter or
+punctuation character produced without modifiers in the current keyboard layout, or one of `up`,
+`down`, `left`, `right`, `enter`/`return`, `esc`/`escape`, `tab`, `spc`/`space`, `lshift`, or
+`rshift`. Number keys, function keys, and characters that require Shift or another modifier are not
+supported. Values identify characters in the current layout, not physical key positions. After leading
+spaces and tabs are removed, `;` starts a comment. It remains a valid value such as `B = ;`.
+
 ## Dewpoint SDK
 
 - It can be used with GBA projects created using [devkitPro](https://github.com/devkitPro/).

@@ -24,6 +24,7 @@
  */
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
+#include "keymap.h"
 #include "log_timestamp.h"
 #include "mgbahelper.h"
 #include "pathutil.h"
@@ -35,6 +36,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdarg>
 #include <cstdio>
@@ -843,19 +845,84 @@ class ScopedSdl
     explicit operator bool() const { return initialized; }
 };
 
-void updateKeyState(mGBAHelper::KeyState* state, SDL_Keycode key, bool pressed)
+void setKeyState(mGBAHelper::KeyState* state, DewpointKeyMap::Button button, bool pressed)
 {
-    switch (key) {
-        case SDLK_UP: state->up = pressed; break;
-        case SDLK_DOWN: state->down = pressed; break;
-        case SDLK_LEFT: state->left = pressed; break;
-        case SDLK_RIGHT: state->right = pressed; break;
-        case SDLK_z: state->b = pressed; break;
-        case SDLK_x: state->a = pressed; break;
-        case SDLK_a: state->l = pressed; break;
-        case SDLK_s: state->r = pressed; break;
-        case SDLK_SPACE: state->start = pressed; break;
-        case SDLK_ESCAPE: state->select = pressed; break;
+    switch (button) {
+        case DewpointKeyMap::Button::Up: state->up = pressed; break;
+        case DewpointKeyMap::Button::Down: state->down = pressed; break;
+        case DewpointKeyMap::Button::Left: state->left = pressed; break;
+        case DewpointKeyMap::Button::Right: state->right = pressed; break;
+        case DewpointKeyMap::Button::A: state->a = pressed; break;
+        case DewpointKeyMap::Button::B: state->b = pressed; break;
+        case DewpointKeyMap::Button::L: state->l = pressed; break;
+        case DewpointKeyMap::Button::R: state->r = pressed; break;
+        case DewpointKeyMap::Button::Start: state->start = pressed; break;
+        case DewpointKeyMap::Button::Select: state->select = pressed; break;
+        case DewpointKeyMap::Button::Count: break;
+    }
+}
+
+struct SdlKeyMap {
+    std::array<SDL_Keycode, DewpointKeyMap::BUTTON_COUNT> keys;
+};
+
+bool resolveSdlKey(const DewpointKeyMap::Binding& binding, SDL_Keycode* key)
+{
+    using DewpointKeyMap::SpecialKey;
+    switch (binding.special) {
+        case SpecialKey::Up: *key = SDLK_UP; return true;
+        case SpecialKey::Down: *key = SDLK_DOWN; return true;
+        case SpecialKey::Left: *key = SDLK_LEFT; return true;
+        case SpecialKey::Right: *key = SDLK_RIGHT; return true;
+        case SpecialKey::Enter: *key = SDLK_RETURN; return true;
+        case SpecialKey::Escape: *key = SDLK_ESCAPE; return true;
+        case SpecialKey::Tab: *key = SDLK_TAB; return true;
+        case SpecialKey::Space: *key = SDLK_SPACE; return true;
+        case SpecialKey::LeftShift: *key = SDLK_LSHIFT; return true;
+        case SpecialKey::RightShift: *key = SDLK_RSHIFT; return true;
+        case SpecialKey::None: break;
+    }
+
+    const SDL_Keycode character = static_cast<unsigned char>(binding.character);
+    const SDL_Scancode scancode = SDL_GetScancodeFromKey(character);
+    if (scancode == SDL_SCANCODE_UNKNOWN || SDL_GetKeyFromScancode(scancode) != character) {
+        return false;
+    }
+    *key = character;
+    return true;
+}
+
+SdlKeyMap createSdlKeyMap(const DewpointKeyMap::Config& config)
+{
+    SdlKeyMap result{};
+    const DewpointKeyMap::Config defaults = DewpointKeyMap::defaultConfig();
+    for (size_t index = 0; index < DewpointKeyMap::BUTTON_COUNT; ++index) {
+        if (resolveSdlKey(config.bindings[index], &result.keys[index])) {
+            continue;
+        }
+        const auto button = static_cast<DewpointKeyMap::Button>(index);
+        std::cerr << "Invalid key assignment for " << DewpointKeyMap::buttonName(button)
+                  << " in the current keyboard layout: "
+                  << DewpointKeyMap::bindingName(config.bindings[index])
+                  << "; using " << DewpointKeyMap::bindingName(defaults.bindings[index]) << '\n';
+        if (!resolveSdlKey(defaults.bindings[index], &result.keys[index])) {
+            result.keys[index] =
+                static_cast<unsigned char>(defaults.bindings[index].character);
+        }
+    }
+    return result;
+}
+
+void updateKeyState(
+    mGBAHelper::KeyState* state,
+    SDL_Keycode key,
+    bool pressed,
+    const SdlKeyMap& keyMap)
+{
+    for (size_t index = 0; index < DewpointKeyMap::BUTTON_COUNT; ++index) {
+        if (keyMap.keys[index] == key) {
+            setKeyState(state, static_cast<DewpointKeyMap::Button>(index), pressed);
+        }
     }
 }
 
@@ -1044,6 +1111,34 @@ bool getSteamInstallDirectory(std::string* installDirectory)
     return true;
 }
 
+DewpointKeyMap::Config loadKeyMapConfig(const std::string& installDirectory)
+{
+    DewpointKeyMap::Config config = DewpointKeyMap::defaultConfig();
+    if (installDirectory.empty()) {
+        std::cerr << "Application installation directory is unavailable; using default key assignments\n";
+        return config;
+    }
+
+    const std::string path = DewpointPath::join(installDirectory, "keymap.ini");
+    std::vector<std::string> diagnostics;
+    std::string errorMessage;
+    const DewpointKeyMap::LoadResult result =
+        DewpointKeyMap::load(path, &config, &diagnostics, &errorMessage);
+    for (const std::string& diagnostic : diagnostics) {
+        std::cerr << "Invalid key map " << path << ": " << diagnostic << '\n';
+    }
+    if (result == DewpointKeyMap::LoadResult::Missing) {
+        if (!DewpointKeyMap::writeDefault(path, &errorMessage)) {
+            std::cerr << "Failed to create default key map " << path << ": "
+                      << errorMessage << "; using default key assignments\n";
+        }
+    } else if (result == DewpointKeyMap::LoadResult::Unreadable) {
+        std::cerr << "Failed to read key map " << path << ": " << errorMessage
+                  << "; using default key assignments\n";
+    }
+    return config;
+}
+
 bool redirectLogsToFile(const std::string& path)
 {
     std::cout.flush();
@@ -1141,12 +1236,16 @@ int main(int argc, char* argv[])
         }
     }
 
+    std::string applicationInstallDirectory;
+    const bool hasApplicationInstallDirectory =
+        getApplicationInstallDirectory(&applicationInstallDirectory);
     std::string logInstallDirectory;
     bool logsRedirected = false;
     if (SteamAPI_IsSteamRunning()) {
-        if (!getApplicationInstallDirectory(&logInstallDirectory)) {
+        if (!hasApplicationInstallDirectory) {
             return 1;
         }
+        logInstallDirectory = applicationInstallDirectory;
         const std::string logPath = DewpointPath::join(logInstallDirectory, "log.txt");
         if (!redirectLogsToFile(logPath)) {
             std::cerr << "Failed to redirect logs to Steam log file: " << logPath << '\n';
@@ -1185,6 +1284,7 @@ int main(int argc, char* argv[])
         if (!getSteamInstallDirectory(&installDirectory)) {
             return 1;
         }
+        applicationInstallDirectory = installDirectory;
         if (!logsRedirected || !DewpointPath::same(logInstallDirectory, installDirectory)) {
             const std::string logPath = DewpointPath::join(installDirectory, "log.txt");
             if (!redirectLogsToFile(logPath)) {
@@ -1203,6 +1303,9 @@ int main(int argc, char* argv[])
             return 1;
         }
     }
+
+    const DewpointKeyMap::Config keyMapConfig = loadKeyMapConfig(applicationInstallDirectory);
+    SdlKeyMap keyMap = createSdlKeyMap(keyMapConfig);
 
     std::vector<uint8_t> rom;
     const uint8_t* romData = game_rom;
@@ -1458,6 +1561,9 @@ int main(int argc, char* argv[])
                         windowedY = event.window.data2;
                     }
                 }
+            } else if (event.type == SDL_KEYMAPCHANGED) {
+                keyMap = createSdlKeyMap(keyMapConfig);
+                keyboardState = {};
             } else if (event.type == SDL_KEYDOWN) {
                 const bool command = (event.key.keysym.mod & KMOD_GUI) != 0;
                 if (command && event.key.keysym.sym == SDLK_q) {
@@ -1481,10 +1587,10 @@ int main(int argc, char* argv[])
                         WINDOW_MIN_WIDTH * scale,
                         WINDOW_MIN_HEIGHT * scale);
                 } else if (!command) {
-                    updateKeyState(&keyboardState, event.key.keysym.sym, true);
+                    updateKeyState(&keyboardState, event.key.keysym.sym, true, keyMap);
                 }
             } else if (event.type == SDL_KEYUP) {
-                updateKeyState(&keyboardState, event.key.keysym.sym, false);
+                updateKeyState(&keyboardState, event.key.keysym.sym, false, keyMap);
             }
         }
         if (!running) {

@@ -21,7 +21,7 @@ MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.so
 MGBA_RUNTIME_NAME = $(notdir $(shell readlink $(MGBA_LIBRARY) 2>/dev/null))
 STEAM_LIBRARY := steamworks/redistributable_bin/linux64/libsteam_api.so
 STEAM_RUNTIME_LIBRARY := libsteam_api.so
-CPP_SOURCES := src/dewpoint_runtime.cpp src/highscore_store.cpp src/mgbahelper.cpp src/sdlmain.cpp \
+CPP_SOURCES := src/dewpoint_runtime.cpp src/highscore_store.cpp src/keymap.cpp src/mgbahelper.cpp src/sdlmain.cpp \
 	src/ugc_codec.cpp src/vulkan_renderer.cpp
 C_SOURCES := src/game_rom.c src/lz4/lz4.c src/lz4/lz4frame.c src/lz4/lz4hc.c \
 	src/lz4/xxhash.c
@@ -120,6 +120,7 @@ package: clean all
 	cp -pL "$(MGBA_LIBRARY)" "$(RELEASE_DIR)/$(MGBA_RUNTIME_NAME)"
 	cp -p vdf/*.vdf $(RELEASE_DIR)
 	cp -p LICENSE* $(RELEASE_DIR)
+	cp -p keymap.ini $(RELEASE_DIR)
 	cd $(RELEASE_DIR) && zip -r "$(RELEASE_ZIP)" *
 
 -include $(DEPFILES)

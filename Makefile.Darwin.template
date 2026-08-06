@@ -25,7 +25,7 @@ MGBA_LIBRARY := $(MGBA_BUILD_DIR)/libmgba.dylib
 MGBA_RUNTIME_NAME = $(notdir $(shell otool -D $(MGBA_LIBRARY) 2>/dev/null | tail -n 1))
 STEAM_LIBRARY := steamworks/redistributable_bin/osx/libsteam_api.dylib
 STEAM_RUNTIME_LIBRARY := libsteam_api.dylib
-CPP_SOURCES := src/dewpoint_runtime.cpp src/highscore_store.cpp src/mgbahelper.cpp src/sdlmain.cpp \
+CPP_SOURCES := src/dewpoint_runtime.cpp src/highscore_store.cpp src/keymap.cpp src/mgbahelper.cpp src/sdlmain.cpp \
 	src/ugc_codec.cpp
 OBJCXX_SOURCES := src/metal_renderer.mm
 C_SOURCES := src/game_rom.c src/lz4/lz4.c src/lz4/lz4frame.c src/lz4/lz4hc.c \
@@ -164,5 +164,6 @@ package: clean all $(ENTITLEMENTS)
 	spctl -a -vv "${APP_BUNDLE}"
 	cd vdf && zip -r ../${NOTARY_ZIP} *.vdf
 	zip -r ${NOTARY_ZIP} LICENSE*
+	zip -r ${NOTARY_ZIP} keymap.ini
 
 -include $(DEPFILES)
