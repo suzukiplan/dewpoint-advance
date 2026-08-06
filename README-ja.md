@@ -138,8 +138,8 @@ Shift 等を併用しないと入力できない記号は指定できません�
 |:----|:------------|
 | `dpa_is_enabled` | Dewpoint Advance SDK が利用できるかチェック |
 | `dpa_get_app_version` | アプリバージョン（AppVersion）の文字列を取得 |
-| `dpa_button_a` | Aボタンの文字コード (PC: `'X'`, XB/SW: `'A'`, PS: `'X'`) |
-| `dpa_button_b` | Bボタンの文字コード (PC: `'Z'`, XB/SW: `'B'`, PS: `'O'`) |
+| `dpa_button_a` | Aボタンの文字コード (PC: `keymap.ini` のA、制御キーは`'?'`, XB/SW: `'A'`, PS: `'X'`) |
+| `dpa_button_b` | Bボタンの文字コード (PC: `keymap.ini` のB、制御キーは`'?'`, XB/SW: `'B'`, PS: `'O'`) |
 | `dpa_gamepad_get` | 接続されているゲームパッド種別を取得 |
 | `dpa_achievement_unlock` | アチーブメントをアンロック |
 | `dpa_leaderboard_send` | スコアを送信 |

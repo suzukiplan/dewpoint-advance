@@ -44,8 +44,8 @@ enum DpaIndex {
     DpaIndexExit,          // [O] プロセス停止 (exit)
     DpaIndexFullScreen,    // [I/O] フルスクリーン (0: Window / not 0: Full Screen)
     DpaAppVersion,         // [O] アプリケーションバージョン文字列を取得
-    DpaButtonA,            // [I] Aボタンのボタンテキスト ('A'|'X'|'X')
-    DpaButtonB,            // [I] Bボタンのボタンテキスト ('B'|'O'|'Z')
+    DpaButtonA,            // [I] Aボタンのボタンテキスト（PCではkeymap.iniのA、制御キーは'?'）
+    DpaButtonB,            // [I] Bボタンのボタンテキスト（PCではkeymap.iniのB、制御キーは'?'）
     DpaIndexUgcLimitSize,  // [I/O] UGC データ（圧縮前）の上限サイズ
     DpaIndexGamepad,       // [I] ゲームパッド種別 (0: PC, 1: XBOX, 2: PS, 3: SW)
 };

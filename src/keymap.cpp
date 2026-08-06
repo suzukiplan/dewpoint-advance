@@ -236,6 +236,26 @@ bool isAssigned(const Binding& binding)
     return binding.character != 0 || binding.special != SpecialKey::None;
 }
 
+char buttonCharacter(const Binding& binding)
+{
+    if (binding.special != SpecialKey::None || binding.character == 0) {
+        return '?';
+    }
+    if (binding.character >= 'a' && binding.character <= 'z') {
+        return static_cast<char>(binding.character - 'a' + 'A');
+    }
+    return binding.character;
+}
+
+char buttonCharacter(const Config& config, Button button)
+{
+    const size_t index = static_cast<size_t>(button);
+    if (index >= config.bindings.size()) {
+        return '?';
+    }
+    return buttonCharacter(config.bindings[index]);
+}
+
 bool advanceRapidFire(RapidFireState* state, bool held)
 {
     if (!state) {

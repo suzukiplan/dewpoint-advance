@@ -159,13 +159,13 @@ int dpa_fullscreen_get(void);
 
 /**
  * @brief Aボタンのキャラクタコード
- * @return 'X': ゲームパッド未接続, 'A': XBOX or Switch, 'X': PlayStation
+ * @return PCキーボード: Aの割り当て文字（制御キーの場合は'?'）, 'A': XBOX or Switch, 'X': PlayStation
  */
 char dpa_button_a(void);
 
 /**
  * @brief Bボタンのキャラクタコード
- * @return 'Z': ゲームパッド未接続, 'B': XBOX or Switch, 'O': PlayStation
+ * @return PCキーボード: Bの割り当て文字（制御キーの場合は'?'）, 'B': XBOX or Switch, 'O': PlayStation
  */
 char dpa_button_b(void);
 

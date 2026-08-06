@@ -53,6 +53,10 @@ int main()
     assert(binding(defaults, Button::R).character == 's');
     assert(binding(defaults, Button::Start).special == SpecialKey::Space);
     assert(binding(defaults, Button::Select).special == SpecialKey::Escape);
+    assert(DewpointKeyMap::buttonCharacter(defaults, Button::A) == 'X');
+    assert(DewpointKeyMap::buttonCharacter(defaults, Button::B) == 'Z');
+    assert(DewpointKeyMap::buttonCharacter(Binding{0, SpecialKey::Enter}) == '?');
+    assert(DewpointKeyMap::buttonCharacter(Binding{';', SpecialKey::None}) == ';');
     assert(!DewpointKeyMap::isAssigned(binding(defaults, Button::RapidA)));
     assert(!DewpointKeyMap::isAssigned(binding(defaults, Button::RapidB)));
 
@@ -141,6 +145,8 @@ int main()
     assert(binding(config, Button::Select).special == SpecialKey::RightShift);
     assert(binding(config, Button::RapidA).character == 'o');
     assert(binding(config, Button::RapidB).character == 'p');
+    assert(DewpointKeyMap::buttonCharacter(config, Button::A) == 'Q');
+    assert(DewpointKeyMap::buttonCharacter(config, Button::B) == ';');
 
     writeFile(
         path,

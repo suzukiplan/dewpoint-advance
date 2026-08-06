@@ -64,6 +64,8 @@ Config defaultConfig();
 const char* buttonName(Button button);
 std::string bindingName(const Binding& binding);
 bool isAssigned(const Binding& binding);
+char buttonCharacter(const Binding& binding);
+char buttonCharacter(const Config& config, Button button);
 
 struct RapidFireState {
     unsigned phase = 0;

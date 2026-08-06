@@ -1340,6 +1340,9 @@ int main(int argc, char* argv[])
     }
 
     const DewpointKeyMap::Config keyMapConfig = loadKeyMapConfig(applicationInstallDirectory);
+    dewpoint.setKeyboardButtonCharacters(
+        DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::A),
+        DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::B));
     SdlKeyMap keyMap = createSdlKeyMap(keyMapConfig);
 
     std::vector<uint8_t> rom;

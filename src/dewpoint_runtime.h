@@ -38,6 +38,7 @@ class DewpointRuntime final : public DewpointBridge
 
     void setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter);
     void setGamepadType(GamepadType type);
+    void setKeyboardButtonCharacters(char a, char b);
     bool takeExitRequest(int* exitCode);
 
     uint32_t readRegister(uint32_t index) override;

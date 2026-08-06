@@ -58,15 +58,19 @@ struct ButtonCharacters {
     char b;
 };
 
-constexpr ButtonCharacters getButtonCharacters(DewpointRuntime::GamepadType gamepadType)
+constexpr ButtonCharacters DEFAULT_KEYBOARD_BUTTON_CHARACTERS{'X', 'Z'};
+
+constexpr ButtonCharacters getButtonCharacters(
+    DewpointRuntime::GamepadType gamepadType,
+    ButtonCharacters keyboardCharacters = DEFAULT_KEYBOARD_BUTTON_CHARACTERS)
 {
     switch (gamepadType) {
         case DewpointRuntime::GamepadType::Xbox:
         case DewpointRuntime::GamepadType::NintendoSwitch: return {'A', 'B'};
         case DewpointRuntime::GamepadType::PlayStation: return {'X', 'O'};
-        case DewpointRuntime::GamepadType::PCKeyboard: return {'X', 'Z'};
+        case DewpointRuntime::GamepadType::PCKeyboard: return keyboardCharacters;
     }
-    return {'X', 'Z'};
+    return DEFAULT_KEYBOARD_BUTTON_CHARACTERS;
 }
 
 static_assert(static_cast<uint32_t>(DewpointRuntime::GamepadType::PCKeyboard) == 0);
@@ -75,6 +79,10 @@ static_assert(static_cast<uint32_t>(DewpointRuntime::GamepadType::PlayStation) =
 static_assert(static_cast<uint32_t>(DewpointRuntime::GamepadType::NintendoSwitch) == 3);
 static_assert(getButtonCharacters(DewpointRuntime::GamepadType::PCKeyboard).a == 'X');
 static_assert(getButtonCharacters(DewpointRuntime::GamepadType::PCKeyboard).b == 'Z');
+static_assert(
+    getButtonCharacters(DewpointRuntime::GamepadType::PCKeyboard, {'Q', ';'}).a == 'Q');
+static_assert(
+    getButtonCharacters(DewpointRuntime::GamepadType::PCKeyboard, {'Q', ';'}).b == ';');
 static_assert(getButtonCharacters(DewpointRuntime::GamepadType::Xbox).a == 'A');
 static_assert(getButtonCharacters(DewpointRuntime::GamepadType::Xbox).b == 'B');
 static_assert(getButtonCharacters(DewpointRuntime::GamepadType::NintendoSwitch).a == 'A');
@@ -133,6 +141,7 @@ struct DewpointRuntime::Impl {
     FullscreenGetter fullscreenGetter;
     bool steamInitialized;
     GamepadType gamepadType;
+    ButtonCharacters keyboardButtonCharacters;
     bool fullscreen;
     bool exitRequested;
     int exitCode;
@@ -156,6 +165,7 @@ struct DewpointRuntime::Impl {
     Impl(mGBAHelper& gba, Logger logger)
         : gba(gba), logger(std::move(logger)), highScoreStore(this->logger),
           steamInitialized(false), gamepadType(GamepadType::PCKeyboard),
+          keyboardButtonCharacters(DEFAULT_KEYBOARD_BUTTON_CHARACTERS),
           fullscreen(false), exitRequested(false), exitCode(0),
           selectedBoardId(-1), sendUgc(false), guestEntryAddress(0), ugcReadIndex(0),
           ugcSizeLimit(DewpointUgc::DEFAULT_SIZE_LIMIT), ugcSize(0), ugcGeneration(0),
@@ -622,6 +632,15 @@ void DewpointRuntime::setGamepadType(GamepadType type)
     impl->gamepadType = type;
 }
 
+void DewpointRuntime::setKeyboardButtonCharacters(char a, char b)
+{
+    const auto validCharacter = [](char value) {
+        const unsigned char character = static_cast<unsigned char>(value);
+        return character >= '!' && character <= '~' ? value : '?';
+    };
+    impl->keyboardButtonCharacters = {validCharacter(a), validCharacter(b)};
+}
+
 bool DewpointRuntime::takeExitRequest(int* exitCode)
 {
     if (!impl->exitRequested) {
@@ -650,8 +669,12 @@ uint32_t DewpointRuntime::readRegister(uint32_t index)
         case DpaIndexUgcSize: return static_cast<uint32_t>(impl->ugcSize);
         case DpaIndexUgcRead: return impl->readUgcWord();
         case DpaIndexUgcLimitSize: return impl->ugcSizeLimit;
-        case DpaButtonA: return static_cast<uint32_t>(getButtonCharacters(impl->gamepadType).a);
-        case DpaButtonB: return static_cast<uint32_t>(getButtonCharacters(impl->gamepadType).b);
+        case DpaButtonA:
+            return static_cast<uint32_t>(
+                getButtonCharacters(impl->gamepadType, impl->keyboardButtonCharacters).a);
+        case DpaButtonB:
+            return static_cast<uint32_t>(
+                getButtonCharacters(impl->gamepadType, impl->keyboardButtonCharacters).b);
         case DpaIndexGamepad: return static_cast<uint32_t>(impl->gamepadType);
         default: return 0;
     }

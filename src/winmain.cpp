@@ -2160,6 +2160,9 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     }
 
     const DewpointKeyMap::Config keyMapConfig = loadKeyMapConfig(applicationInstallDirectory);
+    dewpoint.setKeyboardButtonCharacters(
+        DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::A),
+        DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::B));
     WindowsKeyMap keyMap(keyMapConfig);
 
     std::vector<uint8_t> rom;

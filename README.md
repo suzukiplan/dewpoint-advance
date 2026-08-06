@@ -138,8 +138,8 @@ spaces and tabs are removed, `;` starts a comment. It remains a valid value such
 |:----|:------------|
 | `dpa_is_enabled` | Check whether the Dewpoint Advance SDK is available |
 | `dpa_get_app_version` | Get the application version (`AppVersion`) as a string |
-| `dpa_button_a` | Character code for the A button (PC: `'X'`, XB/SW: `'A'`, PS: `'X'`) |
-| `dpa_button_b` | Character code for the B button (PC: `'Z'`, XB/SW: `'B'`, PS: `'O'`) |
+| `dpa_button_a` | Character code for the A button (PC: `keymap.ini` A or `'?'` for a control key, XB/SW: `'A'`, PS: `'X'`) |
+| `dpa_button_b` | Character code for the B button (PC: `keymap.ini` B or `'?'` for a control key, XB/SW: `'B'`, PS: `'O'`) |
 | `dpa_gamepad_get` | Get the connected gamepad type |
 | `dpa_achievement_unlock` | Unlock an Achievement |
 | `dpa_leaderboard_send` | Submit a score |
