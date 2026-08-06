@@ -104,7 +104,6 @@ package: clean all
 	COPY /Y $(STEAM_RUNTIME) $(RELEASE_DIR)
 	COPY /Y vdf\*.vdf $(RELEASE_DIR)
 	COPY /Y LICENSE*.txt $(RELEASE_DIR)
-	COPY /Y keymap.ini $(RELEASE_DIR)
 	POWERSHELL -NoProfile -Command "if (Test-Path -LiteralPath '$(RELEASE_ZIP)') { Remove-Item -LiteralPath '$(RELEASE_ZIP)' -Force }; Compress-Archive -Path '$(RELEASE_DIR)\*' -DestinationPath '$(RELEASE_ZIP)' -Force"
 
 .PHONY: all clean debug mgba mgba-configure package

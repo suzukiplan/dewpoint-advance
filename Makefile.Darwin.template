@@ -164,6 +164,5 @@ package: clean all $(ENTITLEMENTS)
 	spctl -a -vv "${APP_BUNDLE}"
 	cd vdf && zip -r ../${NOTARY_ZIP} *.vdf
 	zip -r ${NOTARY_ZIP} LICENSE*
-	zip -r ${NOTARY_ZIP} keymap.ini
 
 -include $(DEPFILES)

@@ -120,7 +120,6 @@ package: clean all
 	cp -pL "$(MGBA_LIBRARY)" "$(RELEASE_DIR)/$(MGBA_RUNTIME_NAME)"
 	cp -p vdf/*.vdf $(RELEASE_DIR)
 	cp -p LICENSE* $(RELEASE_DIR)
-	cp -p keymap.ini $(RELEASE_DIR)
 	cd $(RELEASE_DIR) && zip -r "$(RELEASE_ZIP)" *
 
 -include $(DEPFILES)
