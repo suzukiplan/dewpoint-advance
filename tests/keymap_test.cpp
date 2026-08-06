@@ -53,6 +53,27 @@ int main()
     assert(binding(defaults, Button::R).character == 's');
     assert(binding(defaults, Button::Start).special == SpecialKey::Space);
     assert(binding(defaults, Button::Select).special == SpecialKey::Escape);
+    assert(!DewpointKeyMap::isAssigned(binding(defaults, Button::RapidA)));
+    assert(!DewpointKeyMap::isAssigned(binding(defaults, Button::RapidB)));
+
+    DewpointKeyMap::RapidFireState rapid{};
+    for (int frame = 0; frame < 12; ++frame) {
+        assert(DewpointKeyMap::advanceRapidFire(&rapid, true) == (frame % 6 < 3));
+    }
+    assert(!DewpointKeyMap::advanceRapidFire(&rapid, false));
+    assert(DewpointKeyMap::advanceRapidFire(&rapid, true));
+
+    DewpointKeyMap::RapidFireState oneSecond{};
+    bool previouslyPressed = false;
+    int pressCount = 0;
+    for (int frame = 0; frame < 60; ++frame) {
+        const bool pressed = DewpointKeyMap::advanceRapidFire(&oneSecond, true);
+        if (pressed && !previouslyPressed) {
+            ++pressCount;
+        }
+        previouslyPressed = pressed;
+    }
+    assert(pressCount == 10);
 
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() /
@@ -71,7 +92,9 @@ int main()
     assert(error.empty());
     assert(readFile(path) ==
         "; Keyboard mappings use BUTTON = KEY. Button names and key names are case-insensitive.\n"
-        "; Buttons: UP, DOWN, LEFT, RIGHT, A, B, L, R, START, SELECT.\n"
+        "; Buttons: UP, DOWN, LEFT, RIGHT, A, B, L, R, START, SELECT, RAPID_A, RAPID_B.\n"
+        "; RAPID_A and RAPID_B are optional and alternate down/up every three frames\n"
+        "; (10 presses per second at 60 frames per second).\n"
         "; Keys: A-Z, an unmodified ASCII punctuation character, up/down/left/right,\n"
         "; enter/return, esc/escape, tab, spc/space, lshift, or rshift.\n"
         "; Number keys, function keys, and characters requiring modifiers are not supported.\n"
@@ -101,7 +124,9 @@ int main()
         "L = #\r\n"
         "R ==\r\n"
         "start = lshift\r\n"
-        "select = RSHIFT\r\n");
+        "select = RSHIFT\r\n"
+        "rapid_a = O\r\n"
+        "RAPID_B = P\r\n");
     assert(DewpointKeyMap::load(path.string(), &config, &diagnostics, &error) == LoadResult::Loaded);
     assert(diagnostics.empty());
     assert(binding(config, Button::Up).special == SpecialKey::Enter);
@@ -114,6 +139,8 @@ int main()
     assert(binding(config, Button::R).character == '=');
     assert(binding(config, Button::Start).special == SpecialKey::LeftShift);
     assert(binding(config, Button::Select).special == SpecialKey::RightShift);
+    assert(binding(config, Button::RapidA).character == 'o');
+    assert(binding(config, Button::RapidB).character == 'p');
 
     writeFile(
         path,

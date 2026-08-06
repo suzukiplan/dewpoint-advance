@@ -20,10 +20,14 @@ using DewpointKeyMap::Button;
 using DewpointKeyMap::SpecialKey;
 
 constexpr size_t MAX_KEYMAP_SIZE = 64 * 1024;
+constexpr unsigned RAPID_FIRE_PHASE_FRAMES = 3;
+constexpr unsigned RAPID_FIRE_CYCLE_FRAMES = RAPID_FIRE_PHASE_FRAMES * 2;
 
 constexpr const char* KEYMAP_GUIDE =
     "; Keyboard mappings use BUTTON = KEY. Button names and key names are case-insensitive.\n"
-    "; Buttons: UP, DOWN, LEFT, RIGHT, A, B, L, R, START, SELECT.\n"
+    "; Buttons: UP, DOWN, LEFT, RIGHT, A, B, L, R, START, SELECT, RAPID_A, RAPID_B.\n"
+    "; RAPID_A and RAPID_B are optional and alternate down/up every three frames\n"
+    "; (10 presses per second at 60 frames per second).\n"
     "; Keys: A-Z, an unmodified ASCII punctuation character, up/down/left/right,\n"
     "; enter/return, esc/escape, tab, spc/space, lshift, or rshift.\n"
     "; Number keys, function keys, and characters requiring modifiers are not supported.\n"
@@ -80,6 +84,10 @@ bool parseButton(const std::string& value, Button* button)
         *button = Button::Start;
     } else if (name == "select") {
         *button = Button::Select;
+    } else if (name == "rapid_a") {
+        *button = Button::RapidA;
+    } else if (name == "rapid_b") {
+        *button = Button::RapidB;
     } else {
         return false;
     }
@@ -184,6 +192,8 @@ Config defaultConfig()
         Binding{'s', SpecialKey::None},
         Binding{0, SpecialKey::Space},
         Binding{0, SpecialKey::Escape},
+        Binding{0, SpecialKey::None},
+        Binding{0, SpecialKey::None},
     }};
 }
 
@@ -200,6 +210,8 @@ const char* buttonName(Button button)
         case Button::R: return "R";
         case Button::Start: return "START";
         case Button::Select: return "SELECT";
+        case Button::RapidA: return "RAPID_A";
+        case Button::RapidB: return "RAPID_B";
         case Button::Count: break;
     }
     return "UNKNOWN";
@@ -207,6 +219,9 @@ const char* buttonName(Button button)
 
 std::string bindingName(const Binding& binding)
 {
+    if (!isAssigned(binding)) {
+        return "Unassigned";
+    }
     if (binding.special != SpecialKey::None) {
         return specialKeyName(binding.special);
     }
@@ -214,6 +229,26 @@ std::string bindingName(const Binding& binding)
         return std::string(1, static_cast<char>(binding.character - 'a' + 'A'));
     }
     return std::string(1, binding.character);
+}
+
+bool isAssigned(const Binding& binding)
+{
+    return binding.character != 0 || binding.special != SpecialKey::None;
+}
+
+bool advanceRapidFire(RapidFireState* state, bool held)
+{
+    if (!state) {
+        return false;
+    }
+    if (!held) {
+        state->phase = 0;
+        return false;
+    }
+
+    const bool pressed = state->phase < RAPID_FIRE_PHASE_FRAMES;
+    state->phase = (state->phase + 1) % RAPID_FIRE_CYCLE_FRAMES;
+    return pressed;
 }
 
 LoadResult load(
@@ -345,6 +380,9 @@ bool writeDefault(const std::string& path, std::string* errorMessage)
     output << KEYMAP_GUIDE;
     const Config defaults = defaultConfig();
     for (size_t index = 0; index < BUTTON_COUNT; ++index) {
+        if (!isAssigned(defaults.bindings[index])) {
+            continue;
+        }
         const auto button = static_cast<Button>(index);
         output << buttonName(button) << " = " << bindingName(defaults.bindings[index]) << '\n';
     }

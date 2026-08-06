@@ -118,7 +118,10 @@ does not exist, it attempts to create it with the default mappings above. A read
 not prevent startup; the runtime continues with the default mappings.
 
 Each setting uses the case-insensitive `button = key` form. Valid button names are `UP`, `DOWN`,
-`LEFT`, `RIGHT`, `A`, `B`, `L`, `R`, `START`, and `SELECT`. A key may be an ASCII letter or
+`LEFT`, `RIGHT`, `A`, `B`, `L`, `R`, `START`, `SELECT`, `RAPID_A`, and `RAPID_B`.
+`RAPID_A` and `RAPID_B` are optional. While their assigned key is held, the target button alternates
+between three frames down and three frames up, producing 10 presses per second at 60 fps. A key may
+be an ASCII letter or
 punctuation character produced without modifiers in the current keyboard layout, or one of `up`,
 `down`, `left`, `right`, `enter`/`return`, `esc`/`escape`, `tab`, `spc`/`space`, `lshift`, or
 `rshift`. Number keys, function keys, and characters that require Shift or another modifier are not

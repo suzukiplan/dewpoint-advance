@@ -24,6 +24,8 @@ enum class Button : size_t {
     R,
     Start,
     Select,
+    RapidA,
+    RapidB,
     Count,
 };
 
@@ -61,6 +63,13 @@ enum class LoadResult {
 Config defaultConfig();
 const char* buttonName(Button button);
 std::string bindingName(const Binding& binding);
+bool isAssigned(const Binding& binding);
+
+struct RapidFireState {
+    unsigned phase = 0;
+};
+
+bool advanceRapidFire(RapidFireState* state, bool held);
 LoadResult load(
     const std::string& path,
     Config* config,

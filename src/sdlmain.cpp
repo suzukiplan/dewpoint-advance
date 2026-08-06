@@ -845,19 +845,27 @@ class ScopedSdl
     explicit operator bool() const { return initialized; }
 };
 
-void setKeyState(mGBAHelper::KeyState* state, DewpointKeyMap::Button button, bool pressed)
+struct SdlKeyboardState {
+    mGBAHelper::KeyState regular;
+    bool rapidA;
+    bool rapidB;
+};
+
+void setKeyState(SdlKeyboardState* state, DewpointKeyMap::Button button, bool pressed)
 {
     switch (button) {
-        case DewpointKeyMap::Button::Up: state->up = pressed; break;
-        case DewpointKeyMap::Button::Down: state->down = pressed; break;
-        case DewpointKeyMap::Button::Left: state->left = pressed; break;
-        case DewpointKeyMap::Button::Right: state->right = pressed; break;
-        case DewpointKeyMap::Button::A: state->a = pressed; break;
-        case DewpointKeyMap::Button::B: state->b = pressed; break;
-        case DewpointKeyMap::Button::L: state->l = pressed; break;
-        case DewpointKeyMap::Button::R: state->r = pressed; break;
-        case DewpointKeyMap::Button::Start: state->start = pressed; break;
-        case DewpointKeyMap::Button::Select: state->select = pressed; break;
+        case DewpointKeyMap::Button::Up: state->regular.up = pressed; break;
+        case DewpointKeyMap::Button::Down: state->regular.down = pressed; break;
+        case DewpointKeyMap::Button::Left: state->regular.left = pressed; break;
+        case DewpointKeyMap::Button::Right: state->regular.right = pressed; break;
+        case DewpointKeyMap::Button::A: state->regular.a = pressed; break;
+        case DewpointKeyMap::Button::B: state->regular.b = pressed; break;
+        case DewpointKeyMap::Button::L: state->regular.l = pressed; break;
+        case DewpointKeyMap::Button::R: state->regular.r = pressed; break;
+        case DewpointKeyMap::Button::Start: state->regular.start = pressed; break;
+        case DewpointKeyMap::Button::Select: state->regular.select = pressed; break;
+        case DewpointKeyMap::Button::RapidA: state->rapidA = pressed; break;
+        case DewpointKeyMap::Button::RapidB: state->rapidB = pressed; break;
         case DewpointKeyMap::Button::Count: break;
     }
 }
@@ -868,6 +876,9 @@ struct SdlKeyMap {
 
 bool resolveSdlKey(const DewpointKeyMap::Binding& binding, SDL_Keycode* key)
 {
+    if (!DewpointKeyMap::isAssigned(binding)) {
+        return false;
+    }
     using DewpointKeyMap::SpecialKey;
     switch (binding.special) {
         case SpecialKey::Up: *key = SDLK_UP; return true;
@@ -897,24 +908,33 @@ SdlKeyMap createSdlKeyMap(const DewpointKeyMap::Config& config)
     SdlKeyMap result{};
     const DewpointKeyMap::Config defaults = DewpointKeyMap::defaultConfig();
     for (size_t index = 0; index < DewpointKeyMap::BUTTON_COUNT; ++index) {
+        if (!DewpointKeyMap::isAssigned(config.bindings[index])) {
+            result.keys[index] = SDLK_UNKNOWN;
+            continue;
+        }
         if (resolveSdlKey(config.bindings[index], &result.keys[index])) {
             continue;
         }
         const auto button = static_cast<DewpointKeyMap::Button>(index);
         std::cerr << "Invalid key assignment for " << DewpointKeyMap::buttonName(button)
                   << " in the current keyboard layout: "
-                  << DewpointKeyMap::bindingName(config.bindings[index])
-                  << "; using " << DewpointKeyMap::bindingName(defaults.bindings[index]) << '\n';
-        if (!resolveSdlKey(defaults.bindings[index], &result.keys[index])) {
+                  << DewpointKeyMap::bindingName(config.bindings[index]);
+        if (!DewpointKeyMap::isAssigned(defaults.bindings[index])) {
+            std::cerr << "; disabling assignment\n";
+            result.keys[index] = SDLK_UNKNOWN;
+        } else if (!resolveSdlKey(defaults.bindings[index], &result.keys[index])) {
+            std::cerr << "; using " << DewpointKeyMap::bindingName(defaults.bindings[index]) << '\n';
             result.keys[index] =
                 static_cast<unsigned char>(defaults.bindings[index].character);
+        } else {
+            std::cerr << "; using " << DewpointKeyMap::bindingName(defaults.bindings[index]) << '\n';
         }
     }
     return result;
 }
 
 void updateKeyState(
-    mGBAHelper::KeyState* state,
+    SdlKeyboardState* state,
     SDL_Keycode key,
     bool pressed,
     const SdlKeyMap& keyMap)
@@ -924,6 +944,21 @@ void updateKeyState(
             setKeyState(state, static_cast<DewpointKeyMap::Button>(index), pressed);
         }
     }
+}
+
+void applyRapidFire(
+    mGBAHelper::KeyState* state,
+    const mGBAHelper::KeyState& regularState,
+    bool rapidAHeld,
+    bool rapidBHeld,
+    DewpointKeyMap::RapidFireState* rapidAState,
+    DewpointKeyMap::RapidFireState* rapidBState)
+{
+    const bool rapidA = DewpointKeyMap::advanceRapidFire(rapidAState, rapidAHeld);
+    const bool rapidB = DewpointKeyMap::advanceRapidFire(rapidBState, rapidBHeld);
+    *state = regularState;
+    state->a = state->a || rapidA;
+    state->b = state->b || rapidB;
 }
 
 void updateGbaKeyState(
@@ -1527,7 +1562,10 @@ int main(int argc, char* argv[])
         SDL_PauseAudioDevice(audioDevice, 1);
     };
     int exitCode = 0;
-    mGBAHelper::KeyState keyboardState{};
+    SdlKeyboardState keyboardState{};
+    mGBAHelper::KeyState regularKeyState{};
+    DewpointKeyMap::RapidFireState rapidAState{};
+    DewpointKeyMap::RapidFireState rapidBState{};
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -1621,7 +1659,8 @@ int main(int argc, char* argv[])
                 dewpoint.setGamepadType(DewpointRuntime::GamepadType::PCKeyboard);
                 break;
         }
-        updateGbaKeyState(&gba.keyState, keyboardState, steamInput.buttonState);
+        updateGbaKeyState(&regularKeyState, keyboardState.regular, steamInput.buttonState);
+        gba.keyState = regularKeyState;
         if (dewpoint.takeExitRequest(&exitCode)) {
             break;
         }
@@ -1645,6 +1684,13 @@ int main(int argc, char* argv[])
              refill < MAX_AUDIO_REFILL_FRAMES &&
              queuedAudioSize < TARGET_QUEUED_AUDIO_SIZE;
              ++refill) {
+            applyRapidFire(
+                &gba.keyState,
+                regularKeyState,
+                keyboardState.rapidA,
+                keyboardState.rapidB,
+                &rapidAState,
+                &rapidBState);
             gba.tick();
             emulationAdvanced = true;
 

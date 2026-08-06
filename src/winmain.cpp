@@ -1899,6 +1899,9 @@ bool keyPressed(int virtualKey)
 
 bool resolveWindowsKey(const DewpointKeyMap::Binding& binding, HKL layout, int* virtualKey)
 {
+    if (!DewpointKeyMap::isAssigned(binding)) {
+        return false;
+    }
     using DewpointKeyMap::SpecialKey;
     switch (binding.special) {
         case SpecialKey::Up: *virtualKey = VK_UP; return true;
@@ -1952,16 +1955,26 @@ class WindowsKeyMap
 
         const DewpointKeyMap::Config defaults = DewpointKeyMap::defaultConfig();
         for (size_t index = 0; index < DewpointKeyMap::BUTTON_COUNT; ++index) {
+            if (!DewpointKeyMap::isAssigned(config.bindings[index])) {
+                virtualKeys[index] = 0;
+                continue;
+            }
             if (resolveWindowsKey(config.bindings[index], layout, &virtualKeys[index])) {
                 continue;
             }
             const auto button = static_cast<DewpointKeyMap::Button>(index);
+            const std::string fallbackMessage =
+                DewpointKeyMap::isAssigned(defaults.bindings[index])
+                    ? "using " + DewpointKeyMap::bindingName(defaults.bindings[index])
+                    : "disabling assignment";
             writeLog(
-                "Invalid key assignment for %s in the current keyboard layout: %s; using %s",
+                "Invalid key assignment for %s in the current keyboard layout: %s; %s",
                 DewpointKeyMap::buttonName(button),
                 DewpointKeyMap::bindingName(config.bindings[index]).c_str(),
-                DewpointKeyMap::bindingName(defaults.bindings[index]).c_str());
-            if (!resolveWindowsKey(defaults.bindings[index], layout, &virtualKeys[index])) {
+                fallbackMessage.c_str());
+            if (!DewpointKeyMap::isAssigned(defaults.bindings[index])) {
+                virtualKeys[index] = 0;
+            } else if (!resolveWindowsKey(defaults.bindings[index], layout, &virtualKeys[index])) {
                 virtualKeys[index] = static_cast<unsigned char>(defaults.bindings[index].character);
             }
         }
@@ -1977,7 +1990,9 @@ void updateGbaKeyState(
     mGBAHelper::KeyState* state,
     bool keyboardEnabled,
     const CSteam::ButtonState& steamState,
-    WindowsKeyMap* keyMap)
+    WindowsKeyMap* keyMap,
+    bool* rapidAHeld,
+    bool* rapidBHeld)
 {
     keyMap->refresh();
     state->up =
@@ -2000,6 +2015,27 @@ void updateGbaKeyState(
         (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::Start))) || steamState.start;
     state->select =
         (keyboardEnabled && keyPressed(keyMap->key(DewpointKeyMap::Button::Select))) || steamState.select;
+    *rapidAHeld =
+        keyboardEnabled && keyMap->key(DewpointKeyMap::Button::RapidA) != 0 &&
+        keyPressed(keyMap->key(DewpointKeyMap::Button::RapidA));
+    *rapidBHeld =
+        keyboardEnabled && keyMap->key(DewpointKeyMap::Button::RapidB) != 0 &&
+        keyPressed(keyMap->key(DewpointKeyMap::Button::RapidB));
+}
+
+void applyRapidFire(
+    mGBAHelper::KeyState* state,
+    const mGBAHelper::KeyState& regularState,
+    bool rapidAHeld,
+    bool rapidBHeld,
+    DewpointKeyMap::RapidFireState* rapidAState,
+    DewpointKeyMap::RapidFireState* rapidBState)
+{
+    const bool rapidA = DewpointKeyMap::advanceRapidFire(rapidAState, rapidAHeld);
+    const bool rapidB = DewpointKeyMap::advanceRapidFire(rapidBState, rapidBHeld);
+    *state = regularState;
+    state->a = state->a || rapidA;
+    state->b = state->b || rapidB;
 }
 
 void printUsage(const char* executable)
@@ -2203,6 +2239,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
 
     int exitCode = 0;
     bool steamOverlayActive = false;
+    mGBAHelper::KeyState regularKeyState{};
+    bool rapidAHeld = false;
+    bool rapidBHeld = false;
+    DewpointKeyMap::RapidFireState rapidAState{};
+    DewpointKeyMap::RapidFireState rapidBState{};
     while (windowState.running) {
         MSG message{};
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
@@ -2242,7 +2283,14 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
                 break;
         }
         const bool keyboardEnabled = GetForegroundWindow() == window && !IsIconic(window);
-        updateGbaKeyState(&gba.keyState, keyboardEnabled, steamInput.buttonState, &keyMap);
+        updateGbaKeyState(
+            &regularKeyState,
+            keyboardEnabled,
+            steamInput.buttonState,
+            &keyMap,
+            &rapidAHeld,
+            &rapidBHeld);
+        gba.keyState = regularKeyState;
         if (dewpoint.takeExitRequest(&exitCode)) {
             break;
         }
@@ -2261,6 +2309,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
              refill < MAX_AUDIO_REFILL_FRAMES &&
              bufferedAudioBytes < AUDIO_LATENCY_BYTES;
              ++refill) {
+            applyRapidFire(
+                &gba.keyState,
+                regularKeyState,
+                rapidAHeld,
+                rapidBHeld,
+                &rapidAState,
+                &rapidBState);
             gba.tick();
 
             size_t soundSize = 0;

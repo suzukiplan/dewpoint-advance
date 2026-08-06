@@ -117,7 +117,10 @@ Windows ランタイムは Direct3D 9 と DirectSound 8 を使用し、SDL2 に�
 デフォルト割り当てで起動します。
 
 設定は `ボタン = キー` 形式で、大文字と小文字を区別しません。ボタン名は
-`UP`, `DOWN`, `LEFT`, `RIGHT`, `A`, `B`, `L`, `R`, `START`, `SELECT` です。
+`UP`, `DOWN`, `LEFT`, `RIGHT`, `A`, `B`, `L`, `R`, `START`, `SELECT`,
+`RAPID_A`, `RAPID_B` です。`RAPID_A` と `RAPID_B` は省略可能で、指定したキーを
+押している間、対象ボタンを3フレーム押下・3フレーム解放の周期で連打します。
+60fpsでは1秒間に10回の押下になります。
 キーには、現在のキーボードレイアウトで修飾キーなしに入力できる ASCII 英字・記号、
 または `up`, `down`, `left`, `right`, `enter`/`return`, `esc`/`escape`, `tab`,
 `spc`/`space`, `lshift`, `rshift` を指定できます。数字、ファンクションキー、
