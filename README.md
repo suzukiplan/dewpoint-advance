@@ -43,6 +43,10 @@ Note that GBA software using this SDK's APIs cannot run on physical GBA hardware
 
 It is an SDK for developers and publishers who want to distribute **newly developed GBA software** easily on Steam.
 
+## Production Example
+
+[Battle Marine Advance!](https://store.steampowered.com/app/4975370/Battle_Marine_Advance/) is a production example of Dewpoint Advance, covering both its implementation and the process of preparing and selling a game on Steam.
+
 **Important notes:**
 
 - GBA, Game Boy, and Game Boy Advance are registered trademarks of Nintendo in Japan and/or other countries. If you wish to include wording such as "for XXX" in a game title, obtain permission from Nintendo. (Please note that another party's registered trademark cannot be included in a product name without authorization.)

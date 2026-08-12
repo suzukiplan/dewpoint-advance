@@ -42,6 +42,10 @@ flowchart
 
 **新規で開発するGBAソフト** をSteamで手軽に配信したいデベロッパー/パブリッシャー向けの SDK です。
 
+## 実装・販売例
+
+[Battle Marine Advance!](https://store.steampowered.com/app/4975370/Battle_Marine_Advance/) は、Dewpoint Advance の実装に加え、Steam での販売準備から販売までのプロセスを含む実例です。
+
 **重要な補足事項:**
 
 - GBA、Game Boy および Game Boy Advance は任天堂の日本またはその他地域における登録商標です。ゲーム名に「for XXX」等をつけたい場合は任天堂から許諾を得てください。（商品名には他者/他社の登録商標を無許諾でつけることができないのでご注意ください）
