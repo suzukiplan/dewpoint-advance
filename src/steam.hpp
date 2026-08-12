@@ -292,7 +292,7 @@ class CSteam
 
     bool isRunningOnSteamDeck()
     {
-        return SteamUtils() ? SteamUtils()->IsSteamRunningOnSteamDeck() : false;
+        return SteamUtils() ? SteamUtils()->IsRunningOnSteamHardware() == k_ESteamHardwareTypeSteamDeck : false;
     }
 
     static bool isEnabledWindowModo()

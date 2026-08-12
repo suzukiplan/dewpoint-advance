@@ -1,5 +1,9 @@
 # Change Log
 
+## Version 1.3.0
+
+- Added support for Steamworks SDK v1.65
+
 ## Version 1.2.0
 
 - Corrected the log.txt record format: `YYYY.MM.DD hh:mm:ss Log record`
