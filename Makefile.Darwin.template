@@ -60,9 +60,9 @@ LDLIBS := $(MGBA_LIBRARY) $(STEAM_LIBRARY) \
 	-framework Foundation \
 	-pthread
 
-.PHONY: all clean mgba
+.PHONY: all clean mgba dequarantine-steam-runtime
 
-all: $(TARGET)
+all: $(TARGET) dequarantine-steam-runtime
 
 $(TARGET): $(OBJECTS) $(MGBA_LIBRARY) $(STEAM_RUNTIME_LIBRARY) $(SDL2_STATIC_LIBRARY) Makefile.Darwin
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(OBJECTS) $(LDLIBS) -o $@
@@ -73,6 +73,11 @@ $(TARGET): $(OBJECTS) $(MGBA_LIBRARY) $(STEAM_RUNTIME_LIBRARY) $(SDL2_STATIC_LIB
 
 $(STEAM_RUNTIME_LIBRARY): $(STEAM_LIBRARY)
 	cp -p $< $@
+
+dequarantine-steam-runtime: $(STEAM_RUNTIME_LIBRARY)
+	@if xattr -p com.apple.quarantine "$(STEAM_RUNTIME_LIBRARY)" >/dev/null 2>&1; then \
+		xattr -d com.apple.quarantine "$(STEAM_RUNTIME_LIBRARY)"; \
+	fi
 
 $(BUILD_DIR)/%.o: src/%.cpp | $(MGBA_LIBRARY)
 	@mkdir -p $(dir $@)

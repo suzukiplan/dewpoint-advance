@@ -3,6 +3,7 @@
 ## Version 1.3.0
 
 - Added support for Steamworks SDK v1.65
+- Removed the `com.apple.quarantine` attribute from the copied `libsteam_api.dylib` during macOS test builds
 
 ## Version 1.2.0
 
