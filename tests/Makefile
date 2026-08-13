@@ -5,7 +5,7 @@ CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic
 CFLAGS ?= -O2 -g
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic
 
-TARGETS := highscore_store_test keymap_test log_timestamp_test ugc_codec_test
+TARGETS := highscore_store_test keymap_test log_timestamp_test steam_utils_compat_test ugc_codec_test
 CODEC_BUILD_DIR := build
 CODEC_OBJECTS := $(CODEC_BUILD_DIR)/ugc_codec.o \
 	$(CODEC_BUILD_DIR)/lz4.o \
@@ -26,6 +26,9 @@ keymap_test: keymap_test.cpp ../src/keymap.cpp ../src/keymap.h ../src/pathutil.h
 log_timestamp_test: log_timestamp_test.cpp ../src/log_timestamp.h
 	$(CXX) $(CXXFLAGS) -I../src log_timestamp_test.cpp -o $@
 
+steam_utils_compat_test: steam_utils_compat_test.cpp ../src/steam_utils_compat.hpp
+	$(CXX) $(CXXFLAGS) -I../src steam_utils_compat_test.cpp -o $@
+
 ugc_codec_test: ugc_codec_test.cpp $(CODEC_OBJECTS)
 	$(CXX) $(CXXFLAGS) -I../src ugc_codec_test.cpp $(CODEC_OBJECTS) -o $@
 
@@ -41,6 +44,7 @@ test: $(TARGETS)
 	./highscore_store_test
 	./keymap_test
 	./log_timestamp_test
+	./steam_utils_compat_test
 	./ugc_codec_test
 
 clean:

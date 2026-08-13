@@ -25,6 +25,7 @@
 #pragma once
 
 #include "steam_api.h"
+#include "steam_utils_compat.hpp"
 #include <ctype.h>
 #include <vector>
 #include <string>
@@ -292,7 +293,7 @@ class CSteam
 
     bool isRunningOnSteamDeck()
     {
-        return SteamUtils() ? SteamUtils()->IsRunningOnSteamHardware() == k_ESteamHardwareTypeSteamDeck : false;
+        return DewpointSteamUtils::isRunningOnSteamDeck(SteamUtils());
     }
 
     static bool isEnabledWindowModo()
