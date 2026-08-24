@@ -221,7 +221,7 @@ The Xbox, PlayStation, and Nintendo Switch buttons are mapped as follows:
 | B    | ○           | B               | B            |
 | X    | ◻︎           | X               | B            |
 | Y    | △           | Y               | A            |
-| Menu | Menu        | plus            | Start        |
+| Menu | Options     | plus            | Start        |
 | View | Share       | minus           | Select       |
 | LB   | L1          | L               | L            |
 | RB   | R1          | R               | R            |

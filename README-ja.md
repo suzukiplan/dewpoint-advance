@@ -220,7 +220,7 @@ Game Boy Advance の各ボタン（d-pad, A, B, Start, Select, L, R）の役割�
 | B    | ○           | B               | B            |
 | X    | ◻︎           | X               | B            |
 | Y    | △           | Y               | A            |
-| Menu | Menu        | plus            | Start        |
+| Menu | Options     | plus            | Start        |
 | View | Share       | minus           | Select       |
 | LB   | L1          | L               | L            |
 | RB   | R1          | R               | R            |
