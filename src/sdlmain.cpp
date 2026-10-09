@@ -22,6 +22,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include "audio_prebuffer.h"
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
 #include "keymap.h"
@@ -75,7 +76,6 @@ constexpr int WINDOW_MIN_HEIGHT = 160;
 constexpr int AUDIO_FREQUENCY = 44100;
 constexpr int AUDIO_CHANNELS = 2;
 constexpr int AUDIO_SAMPLES = 512;
-constexpr Uint32 TARGET_QUEUED_AUDIO_SIZE = AUDIO_FREQUENCY * AUDIO_CHANNELS * sizeof(int16_t) / 20;
 constexpr int MAX_AUDIO_REFILL_FRAMES = 8;
 
 static_assert(
@@ -1541,6 +1541,7 @@ int main(int argc, char* argv[])
     // Playback starts only after real PCM reaches the target. The audio device
     // then becomes the emulation clock, keeping VSync and rendering stalls from
     // silently growing or draining the queue.
+    AudioPrebuffer audioPrebuffer;
     bool audioPlaybackStarted = false;
     const auto setPaused = [&](bool value) {
         if (paused == value) {
@@ -1710,6 +1711,7 @@ int main(int argc, char* argv[])
         if (audioPlaybackStarted && queuedAudioSize == 0) {
             // SDL supplies silence after a queued-audio underrun. Pause and
             // rebuild the target instead of joining new PCM onto that gap.
+            audioPrebuffer.onUnderrun();
             std::cerr << "SDL audio underrun; rebuilding prebuffer\n";
             SDL_PauseAudioDevice(audioDevice, 1);
             SDL_ClearQueuedAudio(audioDevice);
@@ -1719,7 +1721,8 @@ int main(int argc, char* argv[])
         bool emulationAdvanced = false;
         for (int refill = 0;
              refill < MAX_AUDIO_REFILL_FRAMES &&
-             queuedAudioSize < TARGET_QUEUED_AUDIO_SIZE;
+             queuedAudioSize < audioPrebuffer.targetBytes(
+                 AUDIO_FREQUENCY, AUDIO_CHANNELS * sizeof(int16_t));
              ++refill) {
             applyRapidFire(
                 &gba.keyState,
@@ -1755,7 +1758,8 @@ int main(int argc, char* argv[])
             break;
         }
         if (!audioPlaybackStarted &&
-            queuedAudioSize >= TARGET_QUEUED_AUDIO_SIZE) {
+            queuedAudioSize >= audioPrebuffer.targetBytes(
+                AUDIO_FREQUENCY, AUDIO_CHANNELS * sizeof(int16_t))) {
             SDL_PauseAudioDevice(audioDevice, 0);
             audioPlaybackStarted = true;
         }

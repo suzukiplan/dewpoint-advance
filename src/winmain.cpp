@@ -12,6 +12,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#include "audio_prebuffer.h"
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
 #include "keymap.h"
@@ -64,15 +65,16 @@ constexpr DWORD AUDIO_CHANNELS = 2;
 constexpr DWORD AUDIO_BYTES_PER_SAMPLE = sizeof(int16_t);
 constexpr DWORD AUDIO_FRAME_BYTES = AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE;
 constexpr DWORD AUDIO_BUFFER_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES;
-constexpr DWORD AUDIO_LATENCY_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES / 20;
+constexpr DWORD MAX_AUDIO_LATENCY_BYTES =
+    AUDIO_FREQUENCY * AudioPrebuffer::MAX_DURATION_MS / 1000 * AUDIO_FRAME_BYTES;
 constexpr DWORD AUDIO_SILENCE_GUARD_BYTES = AUDIO_FREQUENCY * AUDIO_FRAME_BYTES / 2;
 constexpr ULONGLONG AUDIO_BUFFER_DURATION_MS = 1000;
 constexpr int MAX_AUDIO_REFILL_FRAMES = 8;
 
 static_assert(AUDIO_BUFFER_BYTES % AUDIO_FRAME_BYTES == 0);
-static_assert(AUDIO_LATENCY_BYTES % AUDIO_FRAME_BYTES == 0);
+static_assert(MAX_AUDIO_LATENCY_BYTES % AUDIO_FRAME_BYTES == 0);
 static_assert(AUDIO_SILENCE_GUARD_BYTES % AUDIO_FRAME_BYTES == 0);
-static_assert(AUDIO_LATENCY_BYTES + AUDIO_SILENCE_GUARD_BYTES < AUDIO_BUFFER_BYTES);
+static_assert(MAX_AUDIO_LATENCY_BYTES + AUDIO_SILENCE_GUARD_BYTES < AUDIO_BUFFER_BYTES);
 
 const char* CRT_PIXEL_SHADER = R"HLSL(
 sampler2D sourceTexture : register(s0);
@@ -1122,6 +1124,7 @@ class DirectSoundOutput
     DWORD bufferedBytes;
     ULONGLONG lastCursorQuery;
     bool playing;
+    AudioPrebuffer prebuffer;
 
     static DWORD forwardDistance(DWORD from, DWORD to)
     {
@@ -1205,7 +1208,7 @@ class DirectSoundOutput
 
     bool startPlayback()
     {
-        if (playing || bufferedBytes < AUDIO_LATENCY_BYTES) {
+        if (playing || bufferedBytes < targetBufferedBytes()) {
             return true;
         }
         if (FAILED(buffer->SetCurrentPosition(0))) {
@@ -1225,6 +1228,7 @@ class DirectSoundOutput
 
     bool recoverUnderrun(const char* reason)
     {
+        prebuffer.onUnderrun();
         writeLog("DirectSound underrun; rebuilding prebuffer (%s)", reason);
         return reset();
     }
@@ -1350,6 +1354,11 @@ class DirectSoundOutput
         if (paused) {
             reset();
         }
+    }
+
+    DWORD targetBufferedBytes() const
+    {
+        return prebuffer.targetBytes(AUDIO_FREQUENCY, AUDIO_FRAME_BYTES);
     }
 
     bool getBufferedBytes(DWORD* size)
@@ -2351,7 +2360,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         }
         for (int refill = 0;
              refill < MAX_AUDIO_REFILL_FRAMES &&
-             bufferedAudioBytes < AUDIO_LATENCY_BYTES;
+             bufferedAudioBytes < audio.targetBufferedBytes();
              ++refill) {
             applyRapidFire(
                 &gba.keyState,
