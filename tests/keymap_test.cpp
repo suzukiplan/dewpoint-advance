@@ -178,22 +178,22 @@ int main()
         Binding parsed{};
         assert(DewpointKeyMap::fromKeyCode(code, &parsed));
         assert(DewpointKeyMap::keyCode(parsed) == code);
-        assert(DewpointKeyMap::set(path.string(), &config, DpaButtonIdA, code, &error));
+        assert(DewpointKeyMap::set(path.string(), &config, DbaButtonIdA, code, &error));
         Config loaded{};
         assert(DewpointKeyMap::load(path.string(), &loaded, &diagnostics, &error) == LoadResult::Loaded);
         assert(diagnostics.empty());
-        assert(DewpointKeyMap::get(loaded, DpaButtonIdA) == code);
-        assert(DewpointKeyMap::get(loaded, DpaButtonIdB) == 'Z');
-        assert(DewpointKeyMap::get(loaded, DpaButtonIdRapidA) == 0);
+        assert(DewpointKeyMap::get(loaded, DbaButtonIdA) == code);
+        assert(DewpointKeyMap::get(loaded, DbaButtonIdB) == 'Z');
+        assert(DewpointKeyMap::get(loaded, DbaButtonIdRapidA) == 0);
     }
-    assert(DewpointKeyMap::set(path.string(), &config, DpaButtonIdA, 'z', &error));
-    assert(DewpointKeyMap::get(config, DpaButtonIdA) == 'Z'); // Duplicates are allowed.
+    assert(DewpointKeyMap::set(path.string(), &config, DbaButtonIdA, 'z', &error));
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z'); // Duplicates are allowed.
     const std::string saved = readFile(path);
     for (int code : {-1, 1, 48, 57, 127, 255, 262, 0x7fffffff}) {
-        assert(!DewpointKeyMap::set(path.string(), &config, DpaButtonIdA, code, &error));
+        assert(!DewpointKeyMap::set(path.string(), &config, DbaButtonIdA, code, &error));
         assert(!error.empty());
         assert(readFile(path) == saved);
-        assert(DewpointKeyMap::get(config, DpaButtonIdA) == 'Z');
+        assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z');
     }
     for (int button : {-1, 12, 0x7fffffff}) {
         assert(DewpointKeyMap::get(config, button) == -1);
@@ -204,15 +204,15 @@ int main()
     assert(!DewpointKeyMap::set(path.string(), nullptr, 0, 'Q', &error));
     assert(!DewpointKeyMap::set("", &config, 0, 'Q', &error));
     assert(!DewpointKeyMap::set((directory / "missing" / "keymap.ini").string(),
-                               &config, DpaButtonIdA, 'Q', &error));
-    assert(DewpointKeyMap::get(config, DpaButtonIdA) == 'Z');
+                               &config, DbaButtonIdA, 'Q', &error));
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z');
     // Both temporary-file creation and final replacement failures preserve state.
     std::filesystem::create_directory(path.string() + ".tmp");
-    assert(!DewpointKeyMap::set(path.string(), &config, DpaButtonIdA, 'Q', &error));
+    assert(!DewpointKeyMap::set(path.string(), &config, DbaButtonIdA, 'Q', &error));
     assert(readFile(path) == saved);
     std::filesystem::remove(path.string() + ".tmp");
-    assert(!DewpointKeyMap::set(directory.string(), &config, DpaButtonIdA, 'Q', &error));
-    assert(DewpointKeyMap::get(config, DpaButtonIdA) == 'Z');
+    assert(!DewpointKeyMap::set(directory.string(), &config, DbaButtonIdA, 'Q', &error));
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z');
     assert(!std::filesystem::exists(directory.string() + ".tmp"));
 
     std::filesystem::remove_all(directory);
