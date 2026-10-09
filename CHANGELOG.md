@@ -2,6 +2,7 @@
 
 ## Version 1.4.0 (in-progress)
 
+- Fixed the Steam overlay failing to appear while the game was paused by continuing to present the last game frame in both the Windows and SDL runtimes
 - Added `dpa_sound_volume_dmg` and `dpa_sound_volume_pcm` Bridge APIs to independently adjust emulator-side DMG and PCM volume from 0 (mute) to 100 (maximum, default), with settings persisted in `config.dat`
 - Added `dpa_sound_volume_dmg_get` and `dpa_sound_volume_pcm_get` Bridge APIs to retrieve the current volume settings
 - Introduced a versioned `config.dat` format with a 4-byte signature, a zero byte, a version byte, and a 2-byte little-endian size; legacy files are automatically migrated while preserving window settings and defaulting both volumes to 100

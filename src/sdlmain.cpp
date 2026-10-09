@@ -1666,6 +1666,9 @@ int main(int argc, char* argv[])
             break;
         }
         if (paused) {
+            // Steam's overlay needs continuous presentation even while the
+            // emulation and audio are paused. Redraw the last game frame.
+            renderer->present(gba.getVram());
             SDL_Delay(10);
             continue;
         }
