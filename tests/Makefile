@@ -23,7 +23,7 @@ runtime_config_test: runtime_config_test.cpp ../src/runtime_config.h
 highscore_store_test: highscore_store_test.cpp ../src/highscore_store.cpp ../src/highscore_store.h ../src/pathutil.h
 	$(CXX) $(CXXFLAGS) -I../src highscore_store_test.cpp ../src/highscore_store.cpp -o $@
 
-keymap_test: keymap_test.cpp ../src/keymap.cpp ../src/keymap.h ../src/pathutil.h
+keymap_test: keymap_test.cpp ../src/keymap.cpp ../src/keymap.h ../src/pathutil.h ../sdk/dpa.h
 	$(CXX) $(CXXFLAGS) -I../src keymap_test.cpp ../src/keymap.cpp -o $@
 
 log_timestamp_test: log_timestamp_test.cpp ../src/log_timestamp.h
@@ -52,7 +52,7 @@ test: $(TARGETS)
 	./ugc_codec_test
 
 clean:
-	rm -f $(TARGETS) sound_volume_test
+	rm -f $(TARGETS) sound_volume_test keyboard_bridge_test
 	rm -rf $(CODEC_BUILD_DIR)
 
 # Optional integration test using a built runtime and its vendored mGBA/Steam libraries.
@@ -64,4 +64,11 @@ test-sound: sound_volume_test
 	DYLD_LIBRARY_PATH="$(abspath $(dir $(STEAM_LIBRARY)))" ./sound_volume_test
 
 sound_volume_test: sound_volume_test.cpp $(RUNTIME_BUILD)/dewpoint_runtime.o $(RUNTIME_BUILD)/mgbahelper.o $(RUNTIME_BUILD)/highscore_store.o $(RUNTIME_BUILD)/ugc_codec.o $(MGBA_LIBRARY) $(STEAM_LIBRARY)
+	$(CXX) $(CXXFLAGS) -DENABLE_DIRECTORIES -DENABLE_VFS -I../src -isystem ../mgba/include -isystem $(RUNTIME_BUILD)/mgba/include $^ $(RUNTIME_BUILD)/lz4/*.o -Wl,-rpath,$(abspath $(RUNTIME_BUILD)/mgba) -Wl,-rpath,$(abspath $(dir $(STEAM_LIBRARY))) -o $@
+
+.PHONY: test-keyboard
+test-keyboard: keyboard_bridge_test
+	DYLD_LIBRARY_PATH="$(abspath $(dir $(STEAM_LIBRARY)))" ./keyboard_bridge_test
+
+keyboard_bridge_test: keyboard_bridge_test.cpp $(RUNTIME_BUILD)/dewpoint_runtime.o $(RUNTIME_BUILD)/mgbahelper.o $(RUNTIME_BUILD)/highscore_store.o $(RUNTIME_BUILD)/ugc_codec.o $(RUNTIME_BUILD)/keymap.o $(MGBA_LIBRARY) $(STEAM_LIBRARY)
 	$(CXX) $(CXXFLAGS) -DENABLE_DIRECTORIES -DENABLE_VFS -I../src -isystem ../mgba/include -isystem $(RUNTIME_BUILD)/mgba/include $^ $(RUNTIME_BUILD)/lz4/*.o -Wl,-rpath,$(abspath $(RUNTIME_BUILD)/mgba) -Wl,-rpath,$(abspath $(dir $(STEAM_LIBRARY))) -o $@

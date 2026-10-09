@@ -1,4 +1,5 @@
 #include "keymap.h"
+#include "../sdk/dpa.h"
 
 #include <cassert>
 #include <chrono>
@@ -101,6 +102,7 @@ int main()
         "; (10 presses per second at 60 frames per second).\n"
         "; Keys: A-Z, an unmodified ASCII punctuation character, up/down/left/right,\n"
         "; enter/return, esc/escape, tab, spc/space, lshift, or rshift.\n"
+        "; Use Unassigned to clear a binding.\n"
         "; Number keys, function keys, and characters requiring modifiers are not supported.\n"
         "; Values follow the current keyboard layout; they do not identify physical key positions.\n"
         "; After trimming spaces and tabs, lines beginning with a semicolon are comments.\n"
@@ -170,6 +172,48 @@ int main()
     assert(!error.empty());
     assert(!DewpointKeyMap::writeDefault((directory / "missing" / "keymap.ini").string(), &error));
     assert(!error.empty());
+
+    config = defaults;
+    for (int code : {0, 9, 13, 27, 32, 65, 90, 59, 61, 256, 257, 258, 259, 260, 261}) {
+        Binding parsed{};
+        assert(DewpointKeyMap::fromKeyCode(code, &parsed));
+        assert(DewpointKeyMap::keyCode(parsed) == code);
+        assert(DewpointKeyMap::set(path.string(), &config, DpaButtonIdA, code, &error));
+        Config loaded{};
+        assert(DewpointKeyMap::load(path.string(), &loaded, &diagnostics, &error) == LoadResult::Loaded);
+        assert(diagnostics.empty());
+        assert(DewpointKeyMap::get(loaded, DpaButtonIdA) == code);
+        assert(DewpointKeyMap::get(loaded, DpaButtonIdB) == 'Z');
+        assert(DewpointKeyMap::get(loaded, DpaButtonIdRapidA) == 0);
+    }
+    assert(DewpointKeyMap::set(path.string(), &config, DpaButtonIdA, 'z', &error));
+    assert(DewpointKeyMap::get(config, DpaButtonIdA) == 'Z'); // Duplicates are allowed.
+    const std::string saved = readFile(path);
+    for (int code : {-1, 1, 48, 57, 127, 255, 262, 0x7fffffff}) {
+        assert(!DewpointKeyMap::set(path.string(), &config, DpaButtonIdA, code, &error));
+        assert(!error.empty());
+        assert(readFile(path) == saved);
+        assert(DewpointKeyMap::get(config, DpaButtonIdA) == 'Z');
+    }
+    for (int button : {-1, 12, 0x7fffffff}) {
+        assert(DewpointKeyMap::get(config, button) == -1);
+        assert(!DewpointKeyMap::set(path.string(), &config, button, 'Q', &error));
+        assert(!error.empty());
+        assert(readFile(path) == saved);
+    }
+    assert(!DewpointKeyMap::set(path.string(), nullptr, 0, 'Q', &error));
+    assert(!DewpointKeyMap::set("", &config, 0, 'Q', &error));
+    assert(!DewpointKeyMap::set((directory / "missing" / "keymap.ini").string(),
+                               &config, DpaButtonIdA, 'Q', &error));
+    assert(DewpointKeyMap::get(config, DpaButtonIdA) == 'Z');
+    // Both temporary-file creation and final replacement failures preserve state.
+    std::filesystem::create_directory(path.string() + ".tmp");
+    assert(!DewpointKeyMap::set(path.string(), &config, DpaButtonIdA, 'Q', &error));
+    assert(readFile(path) == saved);
+    std::filesystem::remove(path.string() + ".tmp");
+    assert(!DewpointKeyMap::set(directory.string(), &config, DpaButtonIdA, 'Q', &error));
+    assert(DewpointKeyMap::get(config, DpaButtonIdA) == 'Z');
+    assert(!std::filesystem::exists(directory.string() + ".tmp"));
 
     std::filesystem::remove_all(directory);
     return 0;

@@ -52,6 +52,10 @@ enum DpaIndex {
     DpaIndexSoundVolumePcm,
     DpaIndexSoundVolumeDmgGet,
     DpaIndexSoundVolumePcmGet,
+    DpaIndexKeyboardInput,
+    DpaIndexKeyboardButton,
+    DpaIndexKeyboardSet,
+    DpaIndexKeyboardGet,
 };
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
@@ -258,4 +262,26 @@ int dpa_sound_volume_pcm_get(void)
 {
     if (!dpa_is_enabled_internal()) return -1;
     return (int32_t)_dpa[DpaIndexSoundVolumePcmGet];
+}
+
+int dpa_keyboard_input(void)
+{
+    if (!dpa_is_enabled_internal()) return 0;
+    return (int32_t)_dpa[DpaIndexKeyboardInput];
+}
+
+int dpa_keyboard_set(int buttonId, int keycode)
+{
+    if (buttonId < 0 || buttonId >= DpaButtonIdCount || keycode < 0 ||
+        !dpa_is_enabled_internal()) return -1;
+    _dpa[DpaIndexKeyboardButton] = (uint32_t)buttonId;
+    _dpa[DpaIndexKeyboardSet] = (uint32_t)keycode;
+    return (int32_t)_dpa[DpaIndexKeyboardSet];
+}
+
+int dpa_keyboard_get(int buttonId)
+{
+    if (buttonId < 0 || buttonId >= DpaButtonIdCount || !dpa_is_enabled_internal()) return -1;
+    _dpa[DpaIndexKeyboardButton] = (uint32_t)buttonId;
+    return (int32_t)_dpa[DpaIndexKeyboardGet];
 }

@@ -407,3 +407,30 @@ Be sure to include the following information in user-accessible documentation (s
 > If the store description on a platform other than Steam can include URLs, provide the exact URL ([https://github.com/suzukiplan/dewpoint-advance/](https://github.com/suzukiplan/dewpoint-advance/)).
 
 If you need to customize the mGBA implementation itself, you must ensure full compliance with the MPL 2.0 license requirements—for example, by publicly releasing a fork of the dewpoint-advance repository that contains your custom implementation and directing users to it.
+
+### In-game keyboard configuration
+
+`dpa_keyboard_input()` returns a currently held assignable key, or 0 when none is
+held or DPA is unavailable. Multiple keys resolve to the lowest SDK key code;
+unmapped keys are also detected. Input requires the game window to have focus.
+`dpa_keyboard_get(buttonId)` returns the current assignment (0 = unassigned,
+-1 = invalid button or unavailable). `dpa_keyboard_set(buttonId, keycode)` saves
+all assignments to the installation directory's `keymap.ini` and applies them
+on success: 0 = success, -1 = invalid/unsupported key, unavailable, or save failure.
+A failed save leaves the current map unchanged. Saving rewrites the file with
+standard comments. Existing custom comments and formatting are not preserved.
+
+Use `DpaButtonIdUp` through `DpaButtonIdRapidB`. Key codes are uppercase ASCII
+letters, ASCII punctuation available without modifiers in the current layout,
+and `DpaKeyUp/Down/Left/Right/Enter/Escape/Tab/Space/LeftShift/RightShift` from
+`sdk/dpa.h`. Lowercase letters passed to the setter normalize to uppercase.
+0 clears an assignment; duplicate assignments are allowed. Number keys,
+function keys and modifier chords remain unsupported, as with the existing INI.
+These codes are neither SDL key codes nor Windows virtual key codes.
+
+In a configuration menu, wait for the key that opened the capture screen to be
+released (`dpa_keyboard_input() == 0`), then capture a nonzero code and pass it
+to the setter. Check the result before reporting success, and wait for release
+before navigating again. Display special keys using the constants above;
+`dpa_button_a/b()` retain their existing character-only behavior. Use the updated
+SDK together with the updated runtime; older runtimes do not implement these APIs.

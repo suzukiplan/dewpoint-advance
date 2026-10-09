@@ -60,6 +60,12 @@ enum class LoadResult {
     Unreadable,
 };
 
+// SDK key codes are independent of SDL and Windows virtual key codes.
+bool fromKeyCode(int code, Binding* binding);
+int keyCode(const Binding& binding);
+int get(const Config& config, int buttonId);
+bool set(const std::string& path, Config* config, int buttonId, int code,
+         std::string* errorMessage);
 Config defaultConfig();
 const char* buttonName(Button button);
 std::string bindingName(const Binding& binding);

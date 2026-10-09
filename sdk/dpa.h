@@ -40,6 +40,45 @@ typedef enum {
     DpaGamepadSW,   // Nintendo Switch
 } DpaGamepad;
 
+typedef enum {
+    DbaButtonIdUp,     // 上
+    DbaButtonIdDown,   // 下
+    DbaButtonIdLeft,   // 左
+    DbaButtonIdRight,  // 右
+    DbaButtonIdA,      // Aボタン
+    DbaButtonIdB,      // Bボタン
+    DbaButtonIdL,      // Lボタン
+    DbaButtonIdR,      // Rボタン
+    DbaButtonIdStart,  // Startボタン
+    DbaButtonIdSelect, // Selectボタン
+    DbaButtonIdRapidA, // Aボタン連射
+    DbaButtonIdRapidB, // Bボタン連射
+    DpaButtonIdCount,
+} DbaButtonId;
+
+/* Letters use uppercase ASCII; punctuation uses ASCII. */
+typedef enum {
+    DpaKeyNone = 0,
+    DpaKeyTab = 9,
+    DpaKeyEnter = 13,
+    DpaKeyEscape = 27,
+    DpaKeySpace = 32,
+    DpaKeyUp = 256,
+    DpaKeyDown,
+    DpaKeyLeft,
+    DpaKeyRight,
+    DpaKeyLeftShift,
+    DpaKeyRightShift,
+} DpaKeyCode;
+
+/* Held assignable key (lowest code if multiple); 0 if none/unavailable. */
+int dpa_keyboard_input(void);
+/* Save and apply: 0 on success, -1 on invalid input/unavailable/save failure.
+ * keycode 0 clears a binding. Duplicate bindings are allowed. */
+int dpa_keyboard_set(int buttonId, int keycode);
+/* Current code, 0 if unassigned, -1 if invalid/unavailable. */
+int dpa_keyboard_get(int buttonId);
+
 /**
  * @brief Dewpoint Advance SDK が利用可能かチェックする
  * @return 0: 利用不可, not 0; 利用可

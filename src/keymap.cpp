@@ -5,19 +5,26 @@
  * Copyright (c) 2026 SUZUKI PLAN.
  */
 #include "keymap.h"
-
+#include "../sdk/dpa.h"
 #include "pathutil.h"
 
 #include <cerrno>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 namespace
 {
 using DewpointKeyMap::Binding;
 using DewpointKeyMap::Button;
 using DewpointKeyMap::SpecialKey;
+
+static_assert(DewpointKeyMap::BUTTON_COUNT == DpaButtonIdCount, "SDK button count is out of sync");
 
 constexpr size_t MAX_KEYMAP_SIZE = 64 * 1024;
 constexpr unsigned RAPID_FIRE_PHASE_FRAMES = 3;
@@ -30,6 +37,7 @@ constexpr const char* KEYMAP_GUIDE =
     "; (10 presses per second at 60 frames per second).\n"
     "; Keys: A-Z, an unmodified ASCII punctuation character, up/down/left/right,\n"
     "; enter/return, esc/escape, tab, spc/space, lshift, or rshift.\n"
+    "; Use Unassigned to clear a binding.\n"
     "; Number keys, function keys, and characters requiring modifiers are not supported.\n"
     "; Values follow the current keyboard layout; they do not identify physical key positions.\n"
     "; After trimming spaces and tabs, lines beginning with a semicolon are comments.\n"
@@ -125,6 +133,10 @@ bool parseSpecialKey(const std::string& value, SpecialKey* special)
 bool parseBinding(const std::string& value, Binding* binding)
 {
     const std::string normalized = lowerAscii(value);
+    if (normalized == "unassigned") {
+        *binding = Binding{0, SpecialKey::None};
+        return true;
+    }
     SpecialKey special = SpecialKey::None;
     if (parseSpecialKey(normalized, &special)) {
         *binding = Binding{0, special};
@@ -179,6 +191,92 @@ void addDiagnostic(
 
 namespace DewpointKeyMap
 {
+bool fromKeyCode(int code, Binding* binding)
+{
+    if (!binding) return false;
+    switch (code) {
+        case DpaKeyNone: *binding = {0, SpecialKey::None}; return true;
+        case DpaKeyUp: *binding = {0, SpecialKey::Up}; return true;
+        case DpaKeyDown: *binding = {0, SpecialKey::Down}; return true;
+        case DpaKeyLeft: *binding = {0, SpecialKey::Left}; return true;
+        case DpaKeyRight: *binding = {0, SpecialKey::Right}; return true;
+        case DpaKeyEnter: *binding = {0, SpecialKey::Enter}; return true;
+        case DpaKeyEscape: *binding = {0, SpecialKey::Escape}; return true;
+        case DpaKeyTab: *binding = {0, SpecialKey::Tab}; return true;
+        case DpaKeySpace: *binding = {0, SpecialKey::Space}; return true;
+        case DpaKeyLeftShift: *binding = {0, SpecialKey::LeftShift}; return true;
+        case DpaKeyRightShift: *binding = {0, SpecialKey::RightShift}; return true;
+        default: break;
+    }
+    return code > 32 && code < 127 && parseBinding(std::string(1, static_cast<char>(code)), binding);
+}
+
+int keyCode(const Binding& binding)
+{
+    switch (binding.special) {
+        case SpecialKey::Up: return DpaKeyUp;
+        case SpecialKey::Down: return DpaKeyDown;
+        case SpecialKey::Left: return DpaKeyLeft;
+        case SpecialKey::Right: return DpaKeyRight;
+        case SpecialKey::Enter: return DpaKeyEnter;
+        case SpecialKey::Escape: return DpaKeyEscape;
+        case SpecialKey::Tab: return DpaKeyTab;
+        case SpecialKey::Space: return DpaKeySpace;
+        case SpecialKey::LeftShift: return DpaKeyLeftShift;
+        case SpecialKey::RightShift: return DpaKeyRightShift;
+        case SpecialKey::None: return binding.character ? buttonCharacter(binding) : 0;
+    }
+    return 0;
+}
+
+int get(const Config& config, int buttonId)
+{
+    return buttonId >= 0 && static_cast<size_t>(buttonId) < BUTTON_COUNT
+        ? keyCode(config.bindings[buttonId]) : -1;
+}
+
+bool set(const std::string& path, Config* config, int buttonId, int code,
+         std::string* errorMessage)
+{
+    if (errorMessage) errorMessage->clear();
+    Binding binding{};
+    if (!config || buttonId < 0 || static_cast<size_t>(buttonId) >= BUTTON_COUNT ||
+        !fromKeyCode(code, &binding) || path.empty()) {
+        if (errorMessage) *errorMessage = "invalid keyboard assignment or storage path";
+        return false;
+    }
+    Config updated = *config;
+    updated.bindings[buttonId] = binding;
+    // Replace only a fully written file so a failed save preserves the old map.
+    const std::string temporary = path + ".tmp";
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        if (errorMessage) *errorMessage = "could not create temporary key map";
+        return false;
+    }
+    output << KEYMAP_GUIDE;
+    for (size_t i = 0; i < BUTTON_COUNT; ++i) {
+        output << buttonName(static_cast<Button>(i)) << " = " << bindingName(updated.bindings[i]) << '\n';
+    }
+    output.close();
+    bool saved = !output.fail();
+    if (saved) {
+#ifdef _WIN32
+        saved = MoveFileExA(temporary.c_str(), path.c_str(),
+                            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+        saved = std::rename(temporary.c_str(), path.c_str()) == 0;
+#endif
+    }
+    if (!saved) {
+        std::remove(temporary.c_str());
+        if (errorMessage) *errorMessage = "failed to write or replace key map";
+        return false;
+    }
+    *config = updated;
+    return true;
+}
+
 Config defaultConfig()
 {
     return Config{{

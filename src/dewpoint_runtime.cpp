@@ -5,6 +5,7 @@
  * Copyright (c) 2026 SUZUKI PLAN.
  */
 #include "dewpoint_runtime.h"
+#include "../sdk/dpa.h"
 
 #include "CSteamLeaderboardHelper.hpp"
 #include "dewpoint_define.h"
@@ -54,8 +55,12 @@ enum DpaIndex : uint32_t {
     DpaIndexSoundVolumePcm,
     DpaIndexSoundVolumeDmgGet,
     DpaIndexSoundVolumePcmGet,
+    DpaIndexKeyboardInput,
+    DpaIndexKeyboardButton,
+    DpaIndexKeyboardSet,
+    DpaIndexKeyboardGet,
 };
-static_assert(DpaIndexSoundVolumePcmGet + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
+static_assert(DpaIndexKeyboardGet + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
 
 struct ButtonCharacters {
     char a;
@@ -146,6 +151,11 @@ struct DewpointRuntime::Impl {
     int dmgVolume = 100;
     int pcmVolume = 100;
     int volumeResult = 100;
+    std::function<int()> keyboardInput;
+    std::function<int(int, int)> keyboardSetter;
+    std::function<int(int)> keyboardGetter;
+    int keyboardButton = -1;
+    int keyboardResult = -1;
     FullscreenGetter fullscreenGetter;
     bool steamInitialized;
     GamepadType gamepadType;
@@ -668,9 +678,24 @@ void DewpointRuntime::setSoundVolumeCallback(std::function<bool(int, int)> callb
     impl->pcmVolume = pcm;
 }
 
+void DewpointRuntime::setKeyboardCallbacks(
+    std::function<int()> input,
+    std::function<int(int, int)> setter,
+    std::function<int(int)> getter)
+{
+    impl->keyboardInput = std::move(input);
+    impl->keyboardSetter = std::move(setter);
+    impl->keyboardGetter = std::move(getter);
+}
+
 uint32_t DewpointRuntime::readRegister(uint32_t index)
 {
     switch (index) {
+        case DpaIndexKeyboardInput: return impl->keyboardInput ? impl->keyboardInput() : 0;
+        case DpaIndexKeyboardSet: return static_cast<uint32_t>(impl->keyboardResult);
+        case DpaIndexKeyboardGet:
+            return impl->keyboardButton >= 0 && impl->keyboardGetter
+                ? static_cast<uint32_t>(impl->keyboardGetter(impl->keyboardButton)) : UINT32_MAX;
         case DpaIndexSoundVolumeDmgGet: return static_cast<uint32_t>(impl->dmgVolume);
         case DpaIndexSoundVolumePcmGet: return static_cast<uint32_t>(impl->pcmVolume);
         case DpaIndexSoundVolumeDmg:
@@ -701,6 +726,15 @@ uint32_t DewpointRuntime::readRegister(uint32_t index)
 
 void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
 {
+    if (index == DpaIndexKeyboardButton) {
+        impl->keyboardButton = value < DpaButtonIdCount ? static_cast<int>(value) : -1;
+        return;
+    }
+    if (index == DpaIndexKeyboardSet) {
+        impl->keyboardResult = impl->keyboardButton >= 0 && value <= DpaKeyRightShift && impl->keyboardSetter
+            ? impl->keyboardSetter(impl->keyboardButton, static_cast<int>(value)) : -1;
+        return;
+    }
     if (index == DpaIndexSoundVolumeDmg || index == DpaIndexSoundVolumePcm) {
         impl->volumeResult = -1;
         if (value > 100 || !impl->soundVolumeCallback) return;
@@ -768,4 +802,6 @@ void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
 void DewpointRuntime::reset()
 {
     impl->resetProtocol();
+    impl->keyboardButton = -1;
+    impl->keyboardResult = -1;
 }

@@ -405,3 +405,27 @@ Steamworks 設定の「データ＆実績」→「実績」に `dpa_achievement_
 > Steam 以外のプラットフォームでストア説明文に URL を記述可能な場合、正確なURL（[https://github.com/suzukiplan/dewpoint-advance/](https://github.com/suzukiplan/dewpoint-advance/)）を記述してください。
 
 mGBA本体の実装をカスタマイズする必要がある場合、例えばそのカスタマイズ実装が含まれる dewpoint-advance の fork リポジトリを public で公開して案内するなど、確実に MPL 2.0 のライセンス要件を満たせる状態にしなければなりません。
+
+### ゲーム内でのキーボード設定
+
+`dpa_keyboard_input()` は現在押されている割り当て可能なキーを返します。
+未入力・DPA 未対応時は 0、同時押し時は SDK キーコードが最小のキーです。
+未割り当てのキーも取得でき、ゲームウィンドウにフォーカスが必要です。
+`dpa_keyboard_get(buttonId)` は現在の割り当てを返します（未割り当て: 0、
+不正なボタン・未対応: -1）。`dpa_keyboard_set(buttonId, keycode)` は全割り当てを
+インストール先の `keymap.ini` に保存して反映します（成功: 0、不正・未対応のキー、
+未対応環境、保存失敗: -1）。保存失敗時は現在の割り当てを維持します。
+保存時は標準コメント付きでファイルを書き直すため、独自コメント・書式は保持しません。
+
+ボタンは `DpaButtonIdUp` 〜 `DpaButtonIdRapidB` を指定します。キーコードは
+英大文字の ASCII、その配列で修飾キーなしで入力できる ASCII 記号、および
+`sdk/dpa.h` の `DpaKeyUp/Down/Left/Right/Enter/Escape/Tab/Space/LeftShift/RightShift`
+です。setter に渡した英小文字は大文字に正規化します。0 で割り当て解除でき、
+複数ボタンへの同一キー割り当ても許可します。従来の INI と同様、数字・ファンクションキー・
+修飾キーとの組み合わせには対応しません。SDL や Windows 固有のキーコードではありません。
+
+設定画面では、画面を開いたキーが離される（`dpa_keyboard_input() == 0`）まで待ち、
+次に取得した非ゼロのコードを setter に渡してください。戻り値で保存成功を確認し、
+もう一度キーが離されるまで待ってからメニュー操作を再開します。特殊キーの表示には
+上記定数を利用してください。`dpa_button_a/b()` は従来どおり文字のみを返します。
+SDK とランタイムの両方を更新してください。旧ランタイムはこの API を実装していません。

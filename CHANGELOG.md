@@ -1,7 +1,8 @@
 # Change Log
 
-## Version 1.4.0 (in-progress)
+## Version 1.4.0
 
+- Added `dpa_keyboard_input`, `dpa_keyboard_set`, and `dpa_keyboard_get` for in-game keyboard configuration, with portable SDK key codes and transactional `keymap.ini` updates on Windows and SDL runtimes
 - Fixed the Steam overlay failing to appear while the game was paused by continuing to present the last game frame in both the Windows and SDL runtimes
 - Added `dpa_sound_volume_dmg` and `dpa_sound_volume_pcm` Bridge APIs to independently adjust emulator-side DMG and PCM volume from 0 (mute) to 100 (maximum, default), with settings persisted in `config.dat`
 - Added `dpa_sound_volume_dmg_get` and `dpa_sound_volume_pcm_get` Bridge APIs to retrieve the current volume settings
