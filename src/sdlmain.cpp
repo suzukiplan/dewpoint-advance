@@ -1504,8 +1504,6 @@ int main(int argc, char* argv[])
         return true;
     }, config.dmg_vol, config.pcm_vol);
 
-    const bool rendererUsesVsync = renderer->usesVsync();
-
     SDL_AudioSpec desired{};
     desired.freq = AUDIO_FREQUENCY;
     desired.format = AUDIO_S16SYS;
@@ -1764,9 +1762,10 @@ int main(int argc, char* argv[])
             audioPlaybackStarted = true;
         }
 
-        renderer->present(gba.getVram());
-
-        if (!rendererUsesVsync && !emulationAdvanced) {
+        if (emulationAdvanced) {
+            renderer->present(gba.getVram());
+        } else {
+            // Skipping presentation also skips its VSync wait.
             SDL_Delay(1);
         }
     }

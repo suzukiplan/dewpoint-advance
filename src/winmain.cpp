@@ -2358,6 +2358,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             exitCode = 1;
             break;
         }
+        bool emulationAdvanced = false;
         for (int refill = 0;
              refill < MAX_AUDIO_REFILL_FRAMES &&
              bufferedAudioBytes < audio.targetBufferedBytes();
@@ -2370,6 +2371,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
                 &rapidAState,
                 &rapidBState);
             gba.tick();
+            emulationAdvanced = true;
 
             size_t soundSize = 0;
             uint16_t* sound = gba.dequeSound(&soundSize);
@@ -2387,9 +2389,14 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         if (!windowState.running) {
             break;
         }
-        if (!renderer.render(gba.getVram())) {
-            windowState.running = false;
-            exitCode = 1;
+        if (emulationAdvanced) {
+            if (!renderer.render(gba.getVram())) {
+                windowState.running = false;
+                exitCode = 1;
+            }
+        } else {
+            // Skipping Present also skips its VSync wait; avoid busy-spinning.
+            Sleep(1);
         }
     }
 

@@ -65,3 +65,29 @@ recording report has not been reproduced on a Windows Steam installation here.
 `audio_prebuffer_test` checks the recovery policy with repeated simulated stalls,
 frame alignment, the latency cap, and available DirectSound ring capacity. It
 is not an integration test of the audio devices or Steam capture hook.
+
+## Skipping presentation without emulation progress
+
+On Windows and all SDL renderers (OpenGL, Metal, Vulkan), normal gameplay now
+presents only after at least one `gba.tick()` in that loop iteration. Iterations
+with a full audio queue sleep for 1 ms instead, even when VSync is enabled,
+since they no longer reach the presentation wait. Paused iterations continue
+presenting for the overlay. This does not compare VRAM: emulated frames still
+trigger presentation when the scene is visually static.
+
+1. Compare 60 Hz and available higher refresh rates, with Steam recording off
+   and on. Observe presentation and emulation counts separately: idle audio
+   refill iterations should produce no render calls; an iteration advancing
+   multiple emulation frames should produce one render call.
+2. Verify normal game speed, music continuity and rapid fire, including a
+   visually static scene. Check that idle iterations do not busy-spin.
+3. Repeat the overlay/pause checks above; rendering must continue while paused.
+4. Resize, toggle fullscreen, minimize/restore and trigger device recovery.
+   During gameplay the next emulation frame must redraw; while paused the
+   continuous presentation path must redraw.
+5. On Windows, force a render failure after emulation advances and verify
+   normal cleanup with exit code 1. Check that an empty audio packet still
+   presents the frame that was advanced before the empty packet was detected.
+
+These are device/recording integration checks; they require real Windows and
+SDL graphics environments and are not covered by the portable unit tests.
