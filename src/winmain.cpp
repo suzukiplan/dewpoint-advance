@@ -15,6 +15,7 @@
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
 #include "keymap.h"
+#include "../sdk/dpa.h"
 #include "log_timestamp.h"
 #include "mgbahelper.h"
 #include "pathutil.h"
@@ -1922,17 +1923,19 @@ bool resolveWindowsKey(const DewpointKeyMap::Binding& binding, HKL layout, int* 
 class WindowsKeyMap
 {
   private:
-    DewpointKeyMap::Config config;
-    std::array<int, DewpointKeyMap::BUTTON_COUNT> virtualKeys;
+    const DewpointKeyMap::Config& config;
+    DewpointKeyMap::ResolvedMap<int> resolved;
     HKL layout;
     bool layoutInitialized;
 
   public:
     explicit WindowsKeyMap(const DewpointKeyMap::Config& config)
-        : config(config), virtualKeys{}, layout(nullptr), layoutInitialized(false)
+        : config(config), resolved{}, layout(nullptr), layoutInitialized(false)
     {
         refresh();
     }
+
+    void invalidate() { layoutInitialized = false; }
 
     void refresh()
     {
@@ -1943,36 +1946,32 @@ class WindowsKeyMap
         layout = currentLayout;
         layoutInitialized = true;
 
-        const DewpointKeyMap::Config defaults = DewpointKeyMap::defaultConfig();
+        resolved = DewpointKeyMap::resolve<int>(config,
+            [&](const DewpointKeyMap::Binding& binding, int* key) {
+                return resolveWindowsKey(binding, layout, key);
+            });
         for (size_t index = 0; index < DewpointKeyMap::BUTTON_COUNT; ++index) {
-            if (!DewpointKeyMap::isAssigned(config.bindings[index])) {
-                virtualKeys[index] = 0;
-                continue;
-            }
-            if (resolveWindowsKey(config.bindings[index], layout, &virtualKeys[index])) {
+            if (!resolved.usedFallback[index]) {
                 continue;
             }
             const auto button = static_cast<DewpointKeyMap::Button>(index);
-            const std::string fallbackMessage =
-                DewpointKeyMap::isAssigned(defaults.bindings[index])
-                    ? "using " + DewpointKeyMap::bindingName(defaults.bindings[index])
-                    : "disabling assignment";
+            const auto& fallback = resolved.effectiveConfig.bindings[index];
+            const std::string fallbackMessage = DewpointKeyMap::isAssigned(fallback)
+                ? "using " + DewpointKeyMap::bindingName(fallback)
+                : "disabling assignment";
             writeLog(
                 "Invalid key assignment for %s in the current keyboard layout: %s; %s",
                 DewpointKeyMap::buttonName(button),
                 DewpointKeyMap::bindingName(config.bindings[index]).c_str(),
                 fallbackMessage.c_str());
-            if (!DewpointKeyMap::isAssigned(defaults.bindings[index])) {
-                virtualKeys[index] = 0;
-            } else if (!resolveWindowsKey(defaults.bindings[index], layout, &virtualKeys[index])) {
-                virtualKeys[index] = static_cast<unsigned char>(defaults.bindings[index].character);
-            }
         }
     }
 
+    const DewpointKeyMap::Config& effectiveBindings() const { return resolved.effectiveConfig; }
+
     int key(DewpointKeyMap::Button button) const
     {
-        return virtualKeys[static_cast<size_t>(button)];
+        return resolved.keys[static_cast<size_t>(button)];
     }
 };
 
@@ -2149,11 +2148,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         }
     }
 
-    const DewpointKeyMap::Config keyMapConfig = loadKeyMapConfig(applicationInstallDirectory);
-    dewpoint.setKeyboardButtonCharacters(
-        DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::A),
-        DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::B));
+    DewpointKeyMap::Config keyMapConfig = loadKeyMapConfig(applicationInstallDirectory);
     WindowsKeyMap keyMap(keyMapConfig);
+    dewpoint.setKeyboardButtonCharacters(
+        DewpointKeyMap::buttonCharacter(keyMap.effectiveBindings(), DewpointKeyMap::Button::A),
+        DewpointKeyMap::buttonCharacter(keyMap.effectiveBindings(), DewpointKeyMap::Button::B));
 
     std::vector<uint8_t> rom;
     const uint8_t* romData = game_rom;
@@ -2205,6 +2204,39 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         reportError("Failed to create the application window. See log.txt for details.");
         return 1;
     }
+
+    dewpoint.setKeyboardCallbacks(
+        [&]() {
+            if (GetForegroundWindow() != window || IsIconic(window)) return 0;
+            for (int code = 1; code <= DpaKeyRightShift; ++code) {
+                DewpointKeyMap::Binding binding{};
+                int key = 0;
+                if (DewpointKeyMap::fromKeyCode(code, &binding) &&
+                    DewpointKeyMap::keyCode(binding) == code &&
+                    resolveWindowsKey(binding, GetKeyboardLayout(0), &key) && keyPressed(key)) return code;
+            }
+            return 0;
+        },
+        [&](int button, int code) {
+            DewpointKeyMap::Binding binding{};
+            int key = 0;
+            if (!DewpointKeyMap::fromKeyCode(code, &binding) ||
+                (code != 0 && !resolveWindowsKey(binding, GetKeyboardLayout(0), &key))) return -1;
+            std::string error;
+            if (!DewpointKeyMap::set(applicationInstallDirectory.empty() ? std::string{} :
+                    DewpointPath::join(applicationInstallDirectory, "keymap.ini"),
+                    &keyMapConfig, button, code, &error)) {
+                writeLog("Failed to save key map: %s", error.c_str());
+                return -1;
+            }
+            keyMap.invalidate();
+            keyMap.refresh();
+            dewpoint.setKeyboardButtonCharacters(
+                DewpointKeyMap::buttonCharacter(keyMap.effectiveBindings(), DewpointKeyMap::Button::A),
+                DewpointKeyMap::buttonCharacter(keyMap.effectiveBindings(), DewpointKeyMap::Button::B));
+            return 0;
+        },
+        [&](int button) { keyMap.refresh(); return DewpointKeyMap::get(keyMap.effectiveBindings(), button); });
 
     Direct3DRenderer renderer;
     DirectSoundOutput audio;
@@ -2283,6 +2315,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
                 dewpoint.setGamepadType(DewpointRuntime::GamepadType::PCKeyboard);
                 break;
         }
+        keyMap.refresh();
+        dewpoint.setKeyboardButtonCharacters(
+            DewpointKeyMap::buttonCharacter(keyMap.effectiveBindings(), DewpointKeyMap::Button::A),
+            DewpointKeyMap::buttonCharacter(keyMap.effectiveBindings(), DewpointKeyMap::Button::B));
         const bool keyboardEnabled = GetForegroundWindow() == window && !IsIconic(window);
         updateGbaKeyState(
             &regularKeyState,

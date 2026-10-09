@@ -38,6 +38,9 @@ class DewpointRuntime final : public DewpointBridge
 
     void setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter);
     void setSoundVolumeCallback(std::function<bool(int, int)> callback, int dmg, int pcm);
+    void setKeyboardCallbacks(std::function<int()> input,
+                              std::function<int(int, int)> setter,
+                              std::function<int(int)> getter);
     void setGamepadType(GamepadType type);
     void setKeyboardButtonCharacters(char a, char b);
     bool takeExitRequest(int* exitCode);

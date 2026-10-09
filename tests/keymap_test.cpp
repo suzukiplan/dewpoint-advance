@@ -1,4 +1,5 @@
 #include "keymap.h"
+#include "../sdk/dpa.h"
 
 #include <cassert>
 #include <chrono>
@@ -101,6 +102,7 @@ int main()
         "; (10 presses per second at 60 frames per second).\n"
         "; Keys: A-Z, an unmodified ASCII punctuation character, up/down/left/right,\n"
         "; enter/return, esc/escape, tab, spc/space, lshift, or rshift.\n"
+        "; Use Unassigned to clear a binding.\n"
         "; Number keys, function keys, and characters requiring modifiers are not supported.\n"
         "; Values follow the current keyboard layout; they do not identify physical key positions.\n"
         "; After trimming spaces and tabs, lines beginning with a semicolon are comments.\n"
@@ -170,6 +172,92 @@ int main()
     assert(!error.empty());
     assert(!DewpointKeyMap::writeDefault((directory / "missing" / "keymap.ini").string(), &error));
     assert(!error.empty());
+
+    config = defaults;
+    for (int code : {0, 9, 13, 27, 32, 65, 90, 59, 61, 256, 257, 258, 259, 260, 261}) {
+        Binding parsed{};
+        assert(DewpointKeyMap::fromKeyCode(code, &parsed));
+        assert(DewpointKeyMap::keyCode(parsed) == code);
+        assert(DewpointKeyMap::set(path.string(), &config, DbaButtonIdA, code, &error));
+        Config loaded{};
+        assert(DewpointKeyMap::load(path.string(), &loaded, &diagnostics, &error) == LoadResult::Loaded);
+        assert(diagnostics.empty());
+        assert(DewpointKeyMap::get(loaded, DbaButtonIdA) == code);
+        assert(DewpointKeyMap::get(loaded, DbaButtonIdB) == 'Z');
+        assert(DewpointKeyMap::get(loaded, DbaButtonIdRapidA) == 0);
+    }
+    assert(DewpointKeyMap::set(path.string(), &config, DbaButtonIdA, 'z', &error));
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z'); // Duplicates are allowed.
+    const std::string saved = readFile(path);
+    for (int code : {-1, 1, 48, 57, 127, 255, 262, 0x7fffffff}) {
+        assert(!DewpointKeyMap::set(path.string(), &config, DbaButtonIdA, code, &error));
+        assert(!error.empty());
+        assert(readFile(path) == saved);
+        assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z');
+    }
+    for (int button : {-1, 12, 0x7fffffff}) {
+        assert(DewpointKeyMap::get(config, button) == -1);
+        assert(!DewpointKeyMap::set(path.string(), &config, button, 'Q', &error));
+        assert(!error.empty());
+        assert(readFile(path) == saved);
+    }
+    assert(!DewpointKeyMap::set(path.string(), nullptr, 0, 'Q', &error));
+    assert(!DewpointKeyMap::set("", &config, 0, 'Q', &error));
+    assert(!DewpointKeyMap::set((directory / "missing" / "keymap.ini").string(),
+                               &config, DbaButtonIdA, 'Q', &error));
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z');
+    // Both temporary-file creation and final replacement failures preserve state.
+    std::filesystem::create_directory(path.string() + ".tmp");
+    assert(!DewpointKeyMap::set(path.string(), &config, DbaButtonIdA, 'Q', &error));
+    assert(readFile(path) == saved);
+    std::filesystem::remove(path.string() + ".tmp");
+    assert(!DewpointKeyMap::set(directory.string(), &config, DbaButtonIdA, 'Q', &error));
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z');
+    assert(!std::filesystem::exists(directory.string() + ".tmp"));
+
+    // Layout fallbacks affect gameplay/getters, never the stored preferences.
+    writeFile(path, "A = Q\nRAPID_A = Q\nL = Unassigned\n");
+    assert(DewpointKeyMap::load(path.string(), &config, &diagnostics, &error) == LoadResult::Loaded);
+    bool compatibleLayout = false;
+    const auto resolveKey = [&](const Binding& value, int* key) {
+        if (!compatibleLayout && value.character == 'q') return false;
+        *key = DewpointKeyMap::keyCode(value);
+        return true;
+    };
+    auto effective = DewpointKeyMap::resolve<int>(config, resolveKey);
+    assert(effective.keys[DbaButtonIdA] == 'X');
+    assert(effective.keys[DbaButtonIdRapidA] == 0);
+    assert(effective.keys[DbaButtonIdL] == 0);
+    assert(DewpointKeyMap::get(effective.effectiveConfig, DbaButtonIdA) == 'X');
+    assert(DewpointKeyMap::buttonCharacter(effective.effectiveConfig, Button::A) == 'X');
+    assert(DewpointKeyMap::get(effective.effectiveConfig, DbaButtonIdRapidA) == 0);
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Q');
+    assert(DewpointKeyMap::get(config, DbaButtonIdRapidA) == 'Q');
+    assert(!effective.usedFallback[DbaButtonIdL]);
+
+    // Saving an unrelated edit while the fallback is active preserves Q on disk.
+    assert(DewpointKeyMap::set(path.string(), &config, DbaButtonIdB, 'W', &error));
+    Config reloaded{};
+    assert(DewpointKeyMap::load(path.string(), &reloaded, &diagnostics, &error) == LoadResult::Loaded);
+    assert(diagnostics.empty());
+    assert(DewpointKeyMap::get(reloaded, DbaButtonIdA) == 'Q');
+    assert(DewpointKeyMap::get(reloaded, DbaButtonIdRapidA) == 'Q');
+    assert(DewpointKeyMap::get(reloaded, DbaButtonIdB) == 'W');
+    assert(DewpointKeyMap::get(reloaded, DbaButtonIdL) == 0);
+
+    // Returning to a compatible layout restores both mappings without reloading.
+    compatibleLayout = true;
+    effective = DewpointKeyMap::resolve<int>(config, resolveKey);
+    assert(effective.keys[DbaButtonIdA] == 'Q');
+    assert(effective.keys[DbaButtonIdRapidA] == 'Q');
+    assert(effective.keys[DbaButtonIdB] == 'W');
+    assert(DewpointKeyMap::get(effective.effectiveConfig, DbaButtonIdA) == 'Q');
+    assert(DewpointKeyMap::buttonCharacter(effective.effectiveConfig, Button::A) == 'Q');
+    assert(!effective.usedFallback[DbaButtonIdA]);
+    compatibleLayout = false;
+    effective = DewpointKeyMap::resolve<int>(config, resolveKey);
+    assert(effective.keys[DbaButtonIdA] == 'X');
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Q');
 
     std::filesystem::remove_all(directory);
     return 0;
