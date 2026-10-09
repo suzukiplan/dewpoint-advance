@@ -2296,6 +2296,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             break;
         }
         if (windowState.paused) {
+            // Steam's overlay needs continuous presentation even while the
+            // emulation and audio are paused. Redraw the last game frame.
+            if (!renderer.render(gba.getVram())) {
+                windowState.running = false;
+                exitCode = 1;
+                break;
+            }
             Sleep(10);
             continue;
         }
