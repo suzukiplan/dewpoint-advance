@@ -73,6 +73,36 @@ bool isAssigned(const Binding& binding);
 char buttonCharacter(const Binding& binding);
 char buttonCharacter(const Config& config, Button button);
 
+// A layout fallback is transient: only Config supplied by the caller is saved.
+template <typename Key>
+struct ResolvedMap {
+    Config effectiveConfig;
+    std::array<Key, BUTTON_COUNT> keys{};
+    std::array<bool, BUTTON_COUNT> usedFallback{};
+};
+
+template <typename Key, typename Resolver>
+ResolvedMap<Key> resolve(const Config& configured, Resolver resolver)
+{
+    ResolvedMap<Key> result{};
+    result.effectiveConfig = configured;
+    const Config defaults = defaultConfig();
+    for (size_t index = 0; index < BUTTON_COUNT; ++index) {
+        const Binding& binding = configured.bindings[index];
+        if (!isAssigned(binding) || resolver(binding, &result.keys[index])) {
+            continue;
+        }
+        result.usedFallback[index] = true;
+        result.effectiveConfig.bindings[index] = defaults.bindings[index];
+        const Binding& fallback = defaults.bindings[index];
+        result.keys[index] = Key{};
+        if (isAssigned(fallback) && !resolver(fallback, &result.keys[index])) {
+            result.keys[index] = static_cast<unsigned char>(fallback.character);
+        }
+    }
+    return result;
+}
+
 struct RapidFireState {
     unsigned phase = 0;
 };

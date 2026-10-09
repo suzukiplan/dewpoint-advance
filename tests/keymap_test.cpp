@@ -215,6 +215,50 @@ int main()
     assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Z');
     assert(!std::filesystem::exists(directory.string() + ".tmp"));
 
+    // Layout fallbacks affect gameplay/getters, never the stored preferences.
+    writeFile(path, "A = Q\nRAPID_A = Q\nL = Unassigned\n");
+    assert(DewpointKeyMap::load(path.string(), &config, &diagnostics, &error) == LoadResult::Loaded);
+    bool compatibleLayout = false;
+    const auto resolveKey = [&](const Binding& value, int* key) {
+        if (!compatibleLayout && value.character == 'q') return false;
+        *key = DewpointKeyMap::keyCode(value);
+        return true;
+    };
+    auto effective = DewpointKeyMap::resolve<int>(config, resolveKey);
+    assert(effective.keys[DbaButtonIdA] == 'X');
+    assert(effective.keys[DbaButtonIdRapidA] == 0);
+    assert(effective.keys[DbaButtonIdL] == 0);
+    assert(DewpointKeyMap::get(effective.effectiveConfig, DbaButtonIdA) == 'X');
+    assert(DewpointKeyMap::buttonCharacter(effective.effectiveConfig, Button::A) == 'X');
+    assert(DewpointKeyMap::get(effective.effectiveConfig, DbaButtonIdRapidA) == 0);
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Q');
+    assert(DewpointKeyMap::get(config, DbaButtonIdRapidA) == 'Q');
+    assert(!effective.usedFallback[DbaButtonIdL]);
+
+    // Saving an unrelated edit while the fallback is active preserves Q on disk.
+    assert(DewpointKeyMap::set(path.string(), &config, DbaButtonIdB, 'W', &error));
+    Config reloaded{};
+    assert(DewpointKeyMap::load(path.string(), &reloaded, &diagnostics, &error) == LoadResult::Loaded);
+    assert(diagnostics.empty());
+    assert(DewpointKeyMap::get(reloaded, DbaButtonIdA) == 'Q');
+    assert(DewpointKeyMap::get(reloaded, DbaButtonIdRapidA) == 'Q');
+    assert(DewpointKeyMap::get(reloaded, DbaButtonIdB) == 'W');
+    assert(DewpointKeyMap::get(reloaded, DbaButtonIdL) == 0);
+
+    // Returning to a compatible layout restores both mappings without reloading.
+    compatibleLayout = true;
+    effective = DewpointKeyMap::resolve<int>(config, resolveKey);
+    assert(effective.keys[DbaButtonIdA] == 'Q');
+    assert(effective.keys[DbaButtonIdRapidA] == 'Q');
+    assert(effective.keys[DbaButtonIdB] == 'W');
+    assert(DewpointKeyMap::get(effective.effectiveConfig, DbaButtonIdA) == 'Q');
+    assert(DewpointKeyMap::buttonCharacter(effective.effectiveConfig, Button::A) == 'Q');
+    assert(!effective.usedFallback[DbaButtonIdA]);
+    compatibleLayout = false;
+    effective = DewpointKeyMap::resolve<int>(config, resolveKey);
+    assert(effective.keys[DbaButtonIdA] == 'X');
+    assert(DewpointKeyMap::get(config, DbaButtonIdA) == 'Q');
+
     std::filesystem::remove_all(directory);
     return 0;
 }

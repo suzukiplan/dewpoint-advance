@@ -12,7 +12,7 @@ int main()
     constexpr uint32_t input = 25, button = 26, set = 27, get = 28;
     assert(runtime.readRegister(input) == 0);
     assert(runtime.readRegister(get) == UINT32_MAX);
-    runtime.writeRegister(button, DpaButtonIdA);
+    runtime.writeRegister(button, DbaButtonIdA);
     runtime.writeRegister(set, 'Q');
     assert(runtime.readRegister(set) == UINT32_MAX);
     const auto directory = std::filesystem::temp_directory_path() /
@@ -50,12 +50,12 @@ int main()
     }
     runtime.reset();
     assert(runtime.readRegister(get) == UINT32_MAX);
-    runtime.writeRegister(button, DpaButtonIdA);
+    runtime.writeRegister(button, DbaButtonIdA);
     assert(runtime.readRegister(get) == 'Q');
     runtime.writeRegister(set, 0);
     assert(runtime.readRegister(set) == 0 && runtime.readRegister(get) == 0);
     DewpointKeyMap::Config loaded{};
     assert(DewpointKeyMap::load(path, &loaded, nullptr, nullptr) == DewpointKeyMap::LoadResult::Loaded);
-    assert(DewpointKeyMap::get(loaded, DpaButtonIdA) == 0);
+    assert(DewpointKeyMap::get(loaded, DbaButtonIdA) == 0);
     std::filesystem::remove_all(directory);
 }
