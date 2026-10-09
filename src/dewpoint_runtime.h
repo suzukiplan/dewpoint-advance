@@ -37,6 +37,7 @@ class DewpointRuntime final : public DewpointBridge
     bool setHighScoreStorageDirectory(const std::string& directory);
 
     void setFullscreenCallbacks(FullscreenSetter setter, FullscreenGetter getter);
+    void setSoundVolumeCallback(std::function<bool(int, int)> callback, int dmg, int pcm);
     void setGamepadType(GamepadType type);
     void setKeyboardButtonCharacters(char a, char b);
     bool takeExitRequest(int* exitCode);

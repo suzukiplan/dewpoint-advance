@@ -50,8 +50,12 @@ enum DpaIndex : uint32_t {
     DpaButtonB,
     DpaIndexUgcLimitSize,
     DpaIndexGamepad,
+    DpaIndexSoundVolumeDmg,
+    DpaIndexSoundVolumePcm,
+    DpaIndexSoundVolumeDmgGet,
+    DpaIndexSoundVolumePcmGet,
 };
-static_assert(DpaIndexGamepad + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
+static_assert(DpaIndexSoundVolumePcmGet + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
 
 struct ButtonCharacters {
     char a;
@@ -138,6 +142,10 @@ struct DewpointRuntime::Impl {
     Logger logger;
     DewpointHighScore::Store highScoreStore;
     FullscreenSetter fullscreenSetter;
+    std::function<bool(int, int)> soundVolumeCallback;
+    int dmgVolume = 100;
+    int pcmVolume = 100;
+    int volumeResult = 100;
     FullscreenGetter fullscreenGetter;
     bool steamInitialized;
     GamepadType gamepadType;
@@ -653,9 +661,20 @@ bool DewpointRuntime::takeExitRequest(int* exitCode)
     return true;
 }
 
+void DewpointRuntime::setSoundVolumeCallback(std::function<bool(int, int)> callback, int dmg, int pcm)
+{
+    impl->soundVolumeCallback = std::move(callback);
+    impl->dmgVolume = dmg;
+    impl->pcmVolume = pcm;
+}
+
 uint32_t DewpointRuntime::readRegister(uint32_t index)
 {
     switch (index) {
+        case DpaIndexSoundVolumeDmgGet: return static_cast<uint32_t>(impl->dmgVolume);
+        case DpaIndexSoundVolumePcmGet: return static_cast<uint32_t>(impl->pcmVolume);
+        case DpaIndexSoundVolumeDmg:
+        case DpaIndexSoundVolumePcm: return static_cast<uint32_t>(impl->volumeResult);
         case DpaIndexId: return DPMID;
         case DpaIndexFullScreen:
             if (impl->fullscreenGetter) {
@@ -682,6 +701,21 @@ uint32_t DewpointRuntime::readRegister(uint32_t index)
 
 void DewpointRuntime::writeRegister(uint32_t index, uint32_t value)
 {
+    if (index == DpaIndexSoundVolumeDmg || index == DpaIndexSoundVolumePcm) {
+        impl->volumeResult = -1;
+        if (value > 100 || !impl->soundVolumeCallback) return;
+        const int dmg = index == DpaIndexSoundVolumeDmg ? static_cast<int>(value) : impl->dmgVolume;
+        const int pcm = index == DpaIndexSoundVolumePcm ? static_cast<int>(value) : impl->pcmVolume;
+        if (!impl->soundVolumeCallback(dmg, pcm)) {
+            impl->log("Failed to save sound volume configuration.");
+            return;
+        }
+        impl->gba.setSoundVolume(dmg, pcm);
+        impl->dmgVolume = dmg;
+        impl->pcmVolume = pcm;
+        impl->volumeResult = static_cast<int>(value);
+        return;
+    }
     if (index == DpaIndexExit) {
         if (!impl->exitRequested) {
             impl->exitRequested = true;

@@ -426,6 +426,14 @@ bool mGBAHelper::saveSram()
     return succeeded;
 }
 
+void mGBAHelper::setSoundVolume(int dmg, int pcm)
+{
+    if (!impl || !impl->core || dmg < 0 || dmg > 100 || pcm < 0 || pcm > 100) return;
+    auto* gba = static_cast<GBA*>(impl->core->board);
+    gba->audio.dmgVolume = dmg;
+    gba->audio.pcmVolume = pcm;
+}
+
 void mGBAHelper::reset()
 {
     if (!impl) {

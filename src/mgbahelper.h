@@ -36,7 +36,7 @@
 class DewpointBridge
 {
   public:
-    static constexpr uint32_t REGISTER_COUNT = 21;
+    static constexpr uint32_t REGISTER_COUNT = 25;
 
     virtual ~DewpointBridge() = default;
 
@@ -101,6 +101,7 @@ class mGBAHelper
      * @brief Reset
      */
     void reset();
+    void setSoundVolume(int dmg, int pcm);
 
     /**
      * @brief Attach the Dewpoint memory-mapped I/O bridge

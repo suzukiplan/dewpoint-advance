@@ -18,6 +18,7 @@
 #include "log_timestamp.h"
 #include "mgbahelper.h"
 #include "pathutil.h"
+#include "runtime_config.h"
 #include "steam.hpp"
 #include "video_filter.h"
 
@@ -518,15 +519,7 @@ class ScopedLogger
     }
 };
 
-struct WindowConfig {
-    int32_t fullscreen;
-    int32_t width;
-    int32_t height;
-    int32_t x;
-    int32_t y;
-};
-
-static_assert(sizeof(WindowConfig) == 20, "WindowConfig must use five 4-byte fields");
+using WindowConfig = DewpointConfig::Config;
 
 WindowConfig defaultWindowConfig()
 {
@@ -552,15 +545,14 @@ WindowConfig loadWindowConfig(const std::string& path)
     }
 
     WindowConfig config{};
-    if (input.tellg() != static_cast<std::streamsize>(sizeof(config))) {
-        writeLog("Invalid window configuration size: %s", path.c_str());
-        return defaultWindowConfig();
-    }
-    input.seekg(0);
-    if (!input.read(reinterpret_cast<char*>(&config), sizeof(config)) ||
-        (config.fullscreen != -1 && config.fullscreen != 0) || config.width <= 0 || config.height <= 0) {
+    bool legacy = false;
+    input.close();
+    if (!DewpointConfig::load(path, &config, &legacy)) {
         writeLog("Invalid window configuration: %s", path.c_str());
         return defaultWindowConfig();
+    }
+    if (legacy && !DewpointConfig::save(path, config)) {
+        writeLog("Failed to migrate configuration: %s", path.c_str());
     }
     const int64_t aspectUnits = std::min<int64_t>(
         std::max<int64_t>(
@@ -579,7 +571,9 @@ bool saveWindowConfig(
     int windowedWidth,
     int windowedHeight,
     int windowedX,
-    int windowedY)
+    int windowedY,
+    int dmgVolume,
+    int pcmVolume)
 {
     const WindowConfig config{
         fullscreen ? -1 : 0,
@@ -587,14 +581,10 @@ bool saveWindowConfig(
         windowedHeight,
         windowedX,
         windowedY,
+        dmgVolume,
+        pcmVolume,
     };
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output) {
-        return false;
-    }
-    output.write(reinterpret_cast<const char*>(&config), sizeof(config));
-    output.flush();
-    return static_cast<bool>(output);
+    return DewpointConfig::save(path, config);
 }
 
 bool readFile(const char* path, std::vector<uint8_t>* data)
@@ -2194,7 +2184,8 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     }
     const bool steamInputInitialized = steamInitialized && steamInput.initializeInput();
 
-    const WindowConfig config = loadWindowConfig(configPath);
+    WindowConfig config = loadWindowConfig(configPath);
+    gba.setSoundVolume(config.dmg_vol, config.pcm_vol);
     WindowState windowState{
         nullptr,
         nullptr,
@@ -2239,6 +2230,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         [&windowState]() {
             return windowState.fullscreen;
         });
+
+    dewpoint.setSoundVolumeCallback([&](int dmg, int pcm) {
+        if (!saveWindowConfig(configPath, windowState.fullscreen, windowState.windowedWidth, windowState.windowedHeight, windowState.windowedX, windowState.windowedY, dmg, pcm)) return false;
+        config.dmg_vol = dmg;
+        config.pcm_vol = pcm;
+        return true;
+    }, config.dmg_vol, config.pcm_vol);
 
     int exitCode = 0;
     bool steamOverlayActive = false;
@@ -2349,7 +2347,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             windowState.windowedWidth,
             windowState.windowedHeight,
             windowState.windowedX,
-            windowState.windowedY)) {
+            windowState.windowedY, config.dmg_vol, config.pcm_vol)) {
         writeLog("Failed to save window configuration: %s", configPath.c_str());
     }
     if (!gba.saveSram()) {

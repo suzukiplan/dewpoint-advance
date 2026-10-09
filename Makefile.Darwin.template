@@ -91,7 +91,7 @@ $(BUILD_DIR)/%.o: src/%.c | $(MGBA_LIBRARY)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(MGBA_LIBRARY): mgba/CMakeLists.txt
+$(MGBA_LIBRARY): mgba/CMakeLists.txt mgba/src/gba/audio.c mgba/include/mgba/internal/gba/audio.h
 	$(CMAKE) -S mgba -B $(MGBA_BUILD_DIR) \
 		-DLIBMGBA_ONLY=OFF \
 		-DDISABLE_FRONTENDS=ON \
