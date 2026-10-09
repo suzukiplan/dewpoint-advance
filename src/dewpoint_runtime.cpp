@@ -52,8 +52,10 @@ enum DpaIndex : uint32_t {
     DpaIndexGamepad,
     DpaIndexSoundVolumeDmg,
     DpaIndexSoundVolumePcm,
+    DpaIndexSoundVolumeDmgGet,
+    DpaIndexSoundVolumePcmGet,
 };
-static_assert(DpaIndexSoundVolumePcm + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
+static_assert(DpaIndexSoundVolumePcmGet + 1 == DewpointBridge::REGISTER_COUNT, "Dewpoint register count is out of sync");
 
 struct ButtonCharacters {
     char a;
@@ -669,6 +671,8 @@ void DewpointRuntime::setSoundVolumeCallback(std::function<bool(int, int)> callb
 uint32_t DewpointRuntime::readRegister(uint32_t index)
 {
     switch (index) {
+        case DpaIndexSoundVolumeDmgGet: return static_cast<uint32_t>(impl->dmgVolume);
+        case DpaIndexSoundVolumePcmGet: return static_cast<uint32_t>(impl->pcmVolume);
         case DpaIndexSoundVolumeDmg:
         case DpaIndexSoundVolumePcm: return static_cast<uint32_t>(impl->volumeResult);
         case DpaIndexId: return DPMID;

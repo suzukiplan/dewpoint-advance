@@ -50,6 +50,8 @@ enum DpaIndex {
     DpaIndexGamepad,       // [I] ゲームパッド種別 (0: PC, 1: XBOX, 2: PS, 3: SW)
     DpaIndexSoundVolumeDmg,
     DpaIndexSoundVolumePcm,
+    DpaIndexSoundVolumeDmgGet,
+    DpaIndexSoundVolumePcmGet,
 };
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
@@ -244,4 +246,16 @@ int dpa_sound_volume_pcm(int percent)
     if (percent < 0 || percent > 100 || !dpa_is_enabled_internal()) return -1;
     _dpa[DpaIndexSoundVolumePcm] = (uint32_t)percent;
     return (int32_t)_dpa[DpaIndexSoundVolumePcm];
+}
+
+int dpa_sound_volume_dmg_get(void)
+{
+    if (!dpa_is_enabled_internal()) return -1;
+    return (int32_t)_dpa[DpaIndexSoundVolumeDmgGet];
+}
+
+int dpa_sound_volume_pcm_get(void)
+{
+    if (!dpa_is_enabled_internal()) return -1;
+    return (int32_t)_dpa[DpaIndexSoundVolumePcmGet];
 }

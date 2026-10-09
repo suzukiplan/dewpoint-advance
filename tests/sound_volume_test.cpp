@@ -44,6 +44,7 @@ int main()
 
     mGBAHelper gba;
     DewpointRuntime runtime(gba);
+    assert(runtime.readRegister(23) == 100 && runtime.readRegister(24) == 100);
     runtime.writeRegister(21, 50);
     assert(runtime.readRegister(21) == UINT32_MAX);
     int calls = 0, savedDmg = 100, savedPcm = 100;
@@ -54,20 +55,34 @@ int main()
         savedDmg = dmg;
         savedPcm = pcm;
         return true;
-    }, 100, 100);
+    }, 23, 67);
+    // Loaded preferences are readable before any setter is called.
+    assert(runtime.readRegister(23) == 23 && runtime.readRegister(24) == 67);
+    assert(calls == 0);
+    // Getter registers are read-only.
+    runtime.writeRegister(23, 80);
+    runtime.writeRegister(24, 90);
+    assert(runtime.readRegister(23) == 23 && runtime.readRegister(24) == 67);
+    assert(calls == 0);
     runtime.writeRegister(21, 0);
-    assert(runtime.readRegister(21) == 0 && savedDmg == 0 && savedPcm == 100);
+    assert(runtime.readRegister(21) == 0 && savedDmg == 0 && savedPcm == 67);
+    assert(runtime.readRegister(23) == 0 && runtime.readRegister(24) == 67);
     runtime.writeRegister(22, 50);
     assert(runtime.readRegister(22) == 50 && savedDmg == 0 && savedPcm == 50);
     runtime.writeRegister(21, 101);
     assert(runtime.readRegister(21) == UINT32_MAX && calls == 2);
     runtime.writeRegister(22, UINT32_MAX);
     assert(runtime.readRegister(22) == UINT32_MAX && calls == 2);
+    assert(runtime.readRegister(23) == 0 && runtime.readRegister(24) == 50);
     fail = true;
     runtime.writeRegister(21, 80);
     assert(runtime.readRegister(21) == UINT32_MAX && savedDmg == 0);
+    assert(runtime.readRegister(23) == 0 && runtime.readRegister(24) == 50);
     fail = false;
     runtime.reset();
+    assert(runtime.readRegister(23) == 0 && runtime.readRegister(24) == 50);
     runtime.writeRegister(22, 100);
     assert(runtime.readRegister(22) == 100 && savedDmg == 0 && savedPcm == 100);
+    assert(runtime.readRegister(23) == 0 && runtime.readRegister(24) == 100);
+    assert(calls == 4);
 }

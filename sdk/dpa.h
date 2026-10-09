@@ -181,3 +181,9 @@ DpaGamepad dpa_gamepad_get(void);
  */
 int dpa_sound_volume_dmg(int percent);
 int dpa_sound_volume_pcm(int percent);
+
+/** Get the current DMG/PCM host volume (0-100), or -1 if DPA is unavailable.
+ * Reading does not change the volume or write config.dat.
+ */
+int dpa_sound_volume_dmg_get(void);
+int dpa_sound_volume_pcm_get(void);

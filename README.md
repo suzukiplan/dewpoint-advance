@@ -160,6 +160,7 @@ spaces and tabs are removed, `;` starts a comment. It remains a valid value such
 | `dpa_fullscreen_set` | Switch between fullscreen and windowed modes |
 | `dpa_fullscreen_get` | Get the fullscreen/windowed mode state |
 | `dpa_sound_volume_dmg` / `dpa_sound_volume_pcm` | Set and persist DMG / PCM volume balance |
+| `dpa_sound_volume_dmg_get` / `dpa_sound_volume_pcm_get` | Get current DMG / PCM volume (0–100; -1 if DPA is unavailable), without modifying settings |
 | `dpa_exit` | Terminate the process (hangs on physical hardware) |
 
 `dpa_sound_volume_dmg(int percent)` and `dpa_sound_volume_pcm(int percent)` accept

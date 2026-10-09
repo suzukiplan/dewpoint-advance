@@ -160,6 +160,7 @@ Shift 等を併用しないと入力できない記号は指定できません�
 | `dpa_fullscreen_set` | フルスクリーン / ウィンドウの切り替え|
 | `dpa_fullscreen_get` | フルスクリーン / ウィンドウの状態取得|
 | `dpa_sound_volume_dmg` / `dpa_sound_volume_pcm` | DMG / PCM の音量バランスを設定・保存 |
+| `dpa_sound_volume_dmg_get` / `dpa_sound_volume_pcm_get` | 現在のDMG / PCM音量を取得（0〜100、DPA未対応時は -1）。設定変更・保存は行いません |
 | `dpa_exit` | プロセス停止（実機ではハングアップ）|
 
 `dpa_sound_volume_dmg(int percent)` / `dpa_sound_volume_pcm(int percent)` は
