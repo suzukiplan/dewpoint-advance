@@ -23,3 +23,9 @@ these checks exercise native input and the game frame loop.
 8. Use an installation directory where saving is prohibited. Attempt a change:
    setter must return -1, gameplay/getter/INI must retain the old configuration,
    and the runtime log must explain the failed save.
+
+9. Configure A and RAPID_A to a key unavailable in a second keyboard layout.
+   Switch to that layout: A should use its default and RAPID_A should be disabled.
+   Change and save B, then inspect the INI: A and RAPID_A must retain their original
+   assignments. Return to the original layout without restarting; both assignments,
+   getter values and A's label must recover. Repeat on Windows and SDL.

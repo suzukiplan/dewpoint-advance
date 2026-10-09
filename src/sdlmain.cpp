@@ -864,9 +864,7 @@ void setKeyState(SdlKeyboardState* state, DewpointKeyMap::Button button, bool pr
     }
 }
 
-struct SdlKeyMap {
-    std::array<SDL_Keycode, DewpointKeyMap::BUTTON_COUNT> keys;
-};
+using SdlKeyMap = DewpointKeyMap::ResolvedMap<SDL_Keycode>;
 
 bool resolveSdlKey(const DewpointKeyMap::Binding& binding, SDL_Keycode* key)
 {
@@ -897,33 +895,22 @@ bool resolveSdlKey(const DewpointKeyMap::Binding& binding, SDL_Keycode* key)
     return true;
 }
 
-SdlKeyMap createSdlKeyMap(DewpointKeyMap::Config& config)
+SdlKeyMap createSdlKeyMap(const DewpointKeyMap::Config& config)
 {
-    SdlKeyMap result{};
-    const DewpointKeyMap::Config defaults = DewpointKeyMap::defaultConfig();
+    SdlKeyMap result = DewpointKeyMap::resolve<SDL_Keycode>(config, resolveSdlKey);
     for (size_t index = 0; index < DewpointKeyMap::BUTTON_COUNT; ++index) {
-        if (!DewpointKeyMap::isAssigned(config.bindings[index])) {
-            result.keys[index] = SDLK_UNKNOWN;
-            continue;
-        }
-        if (resolveSdlKey(config.bindings[index], &result.keys[index])) {
+        if (!result.usedFallback[index]) {
             continue;
         }
         const auto button = static_cast<DewpointKeyMap::Button>(index);
         std::cerr << "Invalid key assignment for " << DewpointKeyMap::buttonName(button)
                   << " in the current keyboard layout: "
                   << DewpointKeyMap::bindingName(config.bindings[index]);
-        if (!DewpointKeyMap::isAssigned(defaults.bindings[index])) {
-            std::cerr << "; disabling assignment\n";
-            result.keys[index] = SDLK_UNKNOWN;
-        } else if (!resolveSdlKey(defaults.bindings[index], &result.keys[index])) {
-            std::cerr << "; using " << DewpointKeyMap::bindingName(defaults.bindings[index]) << '\n';
-            result.keys[index] =
-                static_cast<unsigned char>(defaults.bindings[index].character);
+        if (DewpointKeyMap::isAssigned(result.effectiveConfig.bindings[index])) {
+            std::cerr << "; using " << DewpointKeyMap::bindingName(result.effectiveConfig.bindings[index]) << '\n';
         } else {
-            std::cerr << "; using " << DewpointKeyMap::bindingName(defaults.bindings[index]) << '\n';
+            std::cerr << "; disabling assignment\n";
         }
-        config.bindings[index] = defaults.bindings[index];
     }
     return result;
 }
@@ -1334,8 +1321,8 @@ int main(int argc, char* argv[])
     DewpointKeyMap::Config keyMapConfig = loadKeyMapConfig(applicationInstallDirectory);
     SdlKeyMap keyMap = createSdlKeyMap(keyMapConfig);
     dewpoint.setKeyboardButtonCharacters(
-        DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::A),
-        DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::B));
+        DewpointKeyMap::buttonCharacter(keyMap.effectiveConfig, DewpointKeyMap::Button::A),
+        DewpointKeyMap::buttonCharacter(keyMap.effectiveConfig, DewpointKeyMap::Button::B));
 
     std::vector<uint8_t> rom;
     const uint8_t* romData = game_rom;
@@ -1602,11 +1589,11 @@ int main(int argc, char* argv[])
                 }
             }
             dewpoint.setKeyboardButtonCharacters(
-                DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::A),
-                DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::B));
+                DewpointKeyMap::buttonCharacter(keyMap.effectiveConfig, DewpointKeyMap::Button::A),
+                DewpointKeyMap::buttonCharacter(keyMap.effectiveConfig, DewpointKeyMap::Button::B));
             return 0;
         },
-        [&](int button) { return DewpointKeyMap::get(keyMapConfig, button); });
+        [&](int button) { return DewpointKeyMap::get(keyMap.effectiveConfig, button); });
     mGBAHelper::KeyState regularKeyState{};
     DewpointKeyMap::RapidFireState rapidAState{};
     DewpointKeyMap::RapidFireState rapidBState{};
@@ -1646,8 +1633,8 @@ int main(int argc, char* argv[])
             } else if (event.type == SDL_KEYMAPCHANGED) {
                 keyMap = createSdlKeyMap(keyMapConfig);
                 dewpoint.setKeyboardButtonCharacters(
-                    DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::A),
-                    DewpointKeyMap::buttonCharacter(keyMapConfig, DewpointKeyMap::Button::B));
+                    DewpointKeyMap::buttonCharacter(keyMap.effectiveConfig, DewpointKeyMap::Button::A),
+                    DewpointKeyMap::buttonCharacter(keyMap.effectiveConfig, DewpointKeyMap::Button::B));
                 keyboardState = {};
             } else if (event.type == SDL_KEYDOWN) {
                 const bool command = (event.key.keysym.mod & KMOD_GUI) != 0;

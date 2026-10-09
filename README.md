@@ -420,7 +420,7 @@ on success: 0 = success, -1 = invalid/unsupported key, unavailable, or save fail
 A failed save leaves the current map unchanged. Saving rewrites the file with
 standard comments. Existing custom comments and formatting are not preserved.
 
-Use `DpaButtonIdUp` through `DpaButtonIdRapidB`. Key codes are uppercase ASCII
+Use `DbaButtonIdUp` through `DbaButtonIdRapidB`. Key codes are uppercase ASCII
 letters, ASCII punctuation available without modifiers in the current layout,
 and `DpaKeyUp/Down/Left/Right/Enter/Escape/Tab/Space/LeftShift/RightShift` from
 `sdk/dpa.h`. Lowercase letters passed to the setter normalize to uppercase.
@@ -434,3 +434,8 @@ to the setter. Check the result before reporting success, and wait for release
 before navigating again. Display special keys using the constants above;
 `dpa_button_a/b()` retain their existing character-only behavior. Use the updated
 SDK together with the updated runtime; older runtimes do not implement these APIs.
+
+Bindings unavailable in the current keyboard layout temporarily use their defaults.
+`dpa_keyboard_get()` and the A/B character labels report these effective bindings.
+The configured bindings are retained and restored when a compatible layout returns;
+saving an unrelated button change never persists temporary fallback assignments.
