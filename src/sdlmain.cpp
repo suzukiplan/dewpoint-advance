@@ -28,6 +28,7 @@
 #include "log_timestamp.h"
 #include "mgbahelper.h"
 #include "pathutil.h"
+#include "runtime_config.h"
 #include "steam.hpp"
 #include "video_renderer.h"
 #include "vulkan_renderer.h"
@@ -754,15 +755,7 @@ class OpenGlRenderer final : public VideoRenderer
     }
 };
 
-struct WindowConfig {
-    int32_t fullscreen;
-    int32_t width;
-    int32_t height;
-    int32_t x;
-    int32_t y;
-};
-
-static_assert(sizeof(WindowConfig) == 20, "WindowConfig must use five 4-byte fields");
+using WindowConfig = DewpointConfig::Config;
 
 class ScopedLogger
 {
@@ -1045,15 +1038,14 @@ WindowConfig loadWindowConfig(const std::string& path)
     }
 
     WindowConfig config{};
-    if (input.tellg() != static_cast<std::streamsize>(sizeof(config))) {
-        std::cerr << "Invalid window configuration size: " << path << '\n';
-        return defaultWindowConfig();
-    }
-    input.seekg(0);
-    if (!input.read(reinterpret_cast<char*>(&config), sizeof(config)) ||
-        (config.fullscreen != -1 && config.fullscreen != 0) || config.width <= 0 || config.height <= 0) {
+    bool legacy = false;
+    input.close();
+    if (!DewpointConfig::load(path, &config, &legacy)) {
         std::cerr << "Invalid window configuration: " << path << '\n';
         return defaultWindowConfig();
+    }
+    if (legacy && !DewpointConfig::save(path, config)) {
+        std::cerr << "Failed to migrate configuration: " << path << '\n';
     }
     constrainWindowSize(
         config.width,
@@ -1071,7 +1063,9 @@ bool saveWindowConfig(
     int windowedWidth,
     int windowedHeight,
     int windowedX,
-    int windowedY)
+    int windowedY,
+    int dmgVolume,
+    int pcmVolume)
 {
     const bool fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
     if (!fullscreen) {
@@ -1085,14 +1079,10 @@ bool saveWindowConfig(
         windowedHeight,
         windowedX,
         windowedY,
+        dmgVolume,
+        pcmVolume,
     };
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output) {
-        return false;
-    }
-    output.write(reinterpret_cast<const char*>(&config), sizeof(config));
-    output.flush();
-    return static_cast<bool>(output);
+    return DewpointConfig::save(path, config);
 }
 
 bool isFullscreen(SDL_Window* window)
@@ -1376,7 +1366,8 @@ int main(int argc, char* argv[])
     }
     const bool steamInputInitialized = steamInitialized && steamInput.initializeInput();
 
-    const WindowConfig config = loadWindowConfig(configPath);
+    WindowConfig config = loadWindowConfig(configPath);
+    gba.setSoundVolume(config.dmg_vol, config.pcm_vol);
     const bool windowModeEnabled = CSteam::isEnabledWindowModo();
     int windowedWidth = config.width;
     int windowedHeight = config.height;
@@ -1512,10 +1503,17 @@ int main(int argc, char* argv[])
             return isFullscreen(window);
         });
     const auto saveConfig = [&]() {
-        if (!saveWindowConfig(configPath, window, windowedWidth, windowedHeight, windowedX, windowedY)) {
+        if (!saveWindowConfig(configPath, window, windowedWidth, windowedHeight, windowedX, windowedY, config.dmg_vol, config.pcm_vol)) {
             std::cerr << "Failed to save window configuration: " << configPath << '\n';
         }
     };
+
+    dewpoint.setSoundVolumeCallback([&](int dmg, int pcm) {
+        if (!saveWindowConfig(configPath, window, windowedWidth, windowedHeight, windowedX, windowedY, dmg, pcm)) return false;
+        config.dmg_vol = dmg;
+        config.pcm_vol = pcm;
+        return true;
+    }, config.dmg_vol, config.pcm_vol);
 
     const bool rendererUsesVsync = renderer->usesVsync();
 

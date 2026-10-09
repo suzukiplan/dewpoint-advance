@@ -82,7 +82,7 @@ vulkan-shaders:
 	$(SPIRV_OPT) -O $(BUILD_DIR)/shaders/crt.vert.spv -o src/shaders/crt.vert.spv
 	$(SPIRV_OPT) -O $(BUILD_DIR)/shaders/crt.frag.spv -o src/shaders/crt.frag.spv
 
-$(MGBA_LIBRARY): mgba/CMakeLists.txt
+$(MGBA_LIBRARY): mgba/CMakeLists.txt mgba/src/gba/audio.c mgba/include/mgba/internal/gba/audio.h
 	@mkdir -p $(MGBA_BUILD_DIR)
 	cd $(MGBA_BUILD_DIR) && $(CMAKE) \
 		-DLIBMGBA_ONLY=OFF \

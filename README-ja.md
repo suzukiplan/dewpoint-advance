@@ -159,7 +159,22 @@ Shift 等を併用しないと入力できない記号は指定できません�
 | `dpa_ugc_limit_size_get` | 圧縮前 UGC データの上限サイズを取得 |
 | `dpa_fullscreen_set` | フルスクリーン / ウィンドウの切り替え|
 | `dpa_fullscreen_get` | フルスクリーン / ウィンドウの状態取得|
+| `dpa_sound_volume_dmg` / `dpa_sound_volume_pcm` | DMG / PCM の音量バランスを設定・保存 |
 | `dpa_exit` | プロセス停止（実機ではハングアップ）|
+
+`dpa_sound_volume_dmg(int percent)` / `dpa_sound_volume_pcm(int percent)` は
+0（消音）〜100（最大・規定値）を受け付け、成功時は保存した値、範囲外・DPA未対応・
+保存失敗時は -1 を返します。保存失敗時は変更前の音量を維持します。
+ホスト側で DMG / PCM を個別に減衰させてから混合するため、GBAの音声レジスタを
+変更しません。設定は再起動時に復元され、エミュレータのリセット時にも維持されます。
+
+`config.dat` バージョン1は36バイトです。先頭はアイキャッチ `DPAC`（4バイト）、
+`00`、バージョン `01`、ファイル全体のサイズ `24 00`（リトルエンディアン）です。
+続いて `fullscreen`, `width`, `height`, `x`, `y`, `dmg_vol`, `pcm_vol` を
+それぞれ32ビット符号付き整数・リトルエンディアンで保持します。
+ヘッダのない旧20バイト形式はロード時に自動移行し、ウィンドウ情報を引き継ぎ、
+両音量を100に初期化します。サイズ・ヘッダ・バージョン・値が不正な場合はログに記録し、
+規定値を使用します。保存は一時ファイルからの置換で行い、失敗時は既存ファイルを保持します。
 
 `dpa_gamepad_get` は対応ゲームパッドが未接続の場合は `DpaGamepadPC`、接続されている場合は
 Xbox、PlayStation、Nintendo Switch の種別に応じて `DpaGamepadXBox`、`DpaGamepadPS`、

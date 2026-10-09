@@ -48,6 +48,8 @@ enum DpaIndex {
     DpaButtonB,            // [I] Bボタンのボタンテキスト（PCではkeymap.iniのB、制御キーは'?'）
     DpaIndexUgcLimitSize,  // [I/O] UGC データ（圧縮前）の上限サイズ
     DpaIndexGamepad,       // [I] ゲームパッド種別 (0: PC, 1: XBOX, 2: PS, 3: SW)
+    DpaIndexSoundVolumeDmg,
+    DpaIndexSoundVolumePcm,
 };
 
 static volatile uint32_t* _dpa = (volatile uint32_t*)0x04801000;
@@ -228,4 +230,18 @@ DpaGamepad dpa_gamepad_get(void)
         return DpaGamepadSW;
     }
     return _dpa[DpaIndexGamepad];
+}
+
+int dpa_sound_volume_dmg(int percent)
+{
+    if (percent < 0 || percent > 100 || !dpa_is_enabled_internal()) return -1;
+    _dpa[DpaIndexSoundVolumeDmg] = (uint32_t)percent;
+    return (int32_t)_dpa[DpaIndexSoundVolumeDmg];
+}
+
+int dpa_sound_volume_pcm(int percent)
+{
+    if (percent < 0 || percent > 100 || !dpa_is_enabled_internal()) return -1;
+    _dpa[DpaIndexSoundVolumePcm] = (uint32_t)percent;
+    return (int32_t)_dpa[DpaIndexSoundVolumePcm];
 }

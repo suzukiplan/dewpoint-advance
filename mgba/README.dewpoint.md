@@ -10,3 +10,8 @@ submodule.
 When updating mGBA, replace this directory with the tracked files from the
 desired upstream revision, preserve this file with the new revision, and review
 the resulting diff before committing it.
+
+Local changes to preserve during updates:
+- `GBAAudio::dmgVolume` and `pcmVolume` hold host percentages (default 100).
+  `GBAAudioSample` scales PSG and FIFO A/B separately before bias and clipping.
+  These host preferences are deliberately not reset or serialized as GBA state.

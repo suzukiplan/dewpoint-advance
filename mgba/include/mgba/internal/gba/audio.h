@@ -86,6 +86,8 @@ struct GBAAudio {
 	bool forceDisableChA;
 	bool forceDisableChB;
 	int masterVolume;
+	int dmgVolume;
+	int pcmVolume;
 
 	struct mTimingEvent sampleEvent;
 };

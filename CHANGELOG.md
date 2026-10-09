@@ -1,5 +1,7 @@
 # Change Log
 
+## Version 1.4.0 (in-progress)
+
 ## Version 1.3.0
 
 - Added support for Steamworks SDK v1.65

@@ -43,6 +43,8 @@ void GBAAudioInit(struct GBAAudio* audio, size_t samples) {
 	audio->forceDisableChA = false;
 	audio->forceDisableChB = false;
 	audio->masterVolume = GBA_AUDIO_VOLUME_MAX;
+	audio->dmgVolume = 100;
+	audio->pcmVolume = 100;
 	audio->sampleInterval = GBA_ARM7TDMI_FREQUENCY / 0x8000;
 }
 
@@ -364,27 +366,33 @@ void GBAAudioSample(struct GBAAudio* audio, int32_t timestamp) {
 		GBAudioSamplePSG(&audio->psg, &sampleLeft, &sampleRight);
 		sampleLeft >>= psgShift;
 		sampleRight >>= psgShift;
+		sampleLeft = sampleLeft * audio->dmgVolume / 100;
+		sampleRight = sampleRight * audio->dmgVolume / 100;
+		int pcmLeft = 0;
+		int pcmRight = 0;
 
 		if (!audio->forceDisableChA) {
 			if (audio->chALeft) {
-				sampleLeft += (audio->chA.samples[sample] << 2) >> !audio->volumeChA;
+				pcmLeft += (audio->chA.samples[sample] * 4) >> !audio->volumeChA;
 			}
 
 			if (audio->chARight) {
-				sampleRight += (audio->chA.samples[sample] << 2) >> !audio->volumeChA;
+				pcmRight += (audio->chA.samples[sample] * 4) >> !audio->volumeChA;
 			}
 		}
 
 		if (!audio->forceDisableChB) {
 			if (audio->chBLeft) {
-				sampleLeft += (audio->chB.samples[sample] << 2) >> !audio->volumeChB;
+				pcmLeft += (audio->chB.samples[sample] * 4) >> !audio->volumeChB;
 			}
 
 			if (audio->chBRight) {
-				sampleRight += (audio->chB.samples[sample] << 2) >> !audio->volumeChB;
+				pcmRight += (audio->chB.samples[sample] * 4) >> !audio->volumeChB;
 			}
 		}
 
+		sampleLeft += pcmLeft * audio->pcmVolume / 100;
+		sampleRight += pcmRight * audio->pcmVolume / 100;
 		sampleLeft = _applyBias(audio, sampleLeft);
 		sampleRight = _applyBias(audio, sampleRight);
 		audio->currentSamples[sample].left = sampleLeft;

@@ -159,7 +159,22 @@ spaces and tabs are removed, `;` starts a comment. It remains a valid value such
 | `dpa_ugc_limit_size_get` | Get the uncompressed UGC size limit |
 | `dpa_fullscreen_set` | Switch between fullscreen and windowed modes |
 | `dpa_fullscreen_get` | Get the fullscreen/windowed mode state |
+| `dpa_sound_volume_dmg` / `dpa_sound_volume_pcm` | Set and persist DMG / PCM volume balance |
 | `dpa_exit` | Terminate the process (hangs on physical hardware) |
+
+`dpa_sound_volume_dmg(int percent)` and `dpa_sound_volume_pcm(int percent)` accept
+0 (mute) through 100 (maximum, default). They return the saved percentage, or -1
+for out-of-range input, unavailable DPA, or a save failure. A failed save leaves
+the previous volume active. The host mixer scales DMG and PCM independently before
+mixing; GBA sound registers are unchanged. Settings survive restart and emulated reset.
+
+`config.dat` version 1 is 36 bytes: `DPAC` (4 bytes), `00`, version `01`, and the
+total file size `24 00` (little-endian), followed by seven little-endian signed
+32-bit fields: `fullscreen`, `width`, `height`, `x`, `y`, `dmg_vol`, `pcm_vol`.
+A headerless legacy 20-byte file is migrated on load, retaining window settings
+and initializing both volumes to 100. Invalid sizes, headers, versions, or field
+values are rejected with a diagnostic and defaults are used. Writes use a temporary
+file and replacement to preserve the previous file on failure.
 
 `dpa_gamepad_get` returns `DpaGamepadPC` when no supported gamepad is connected, or
 `DpaGamepadXBox`, `DpaGamepadPS`, or `DpaGamepadSW` for a connected Xbox,
