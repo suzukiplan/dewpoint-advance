@@ -21,7 +21,7 @@ class MetalRenderer final : public VideoRenderer
         int height,
         VideoFilter filter) override;
     bool usesVsync() const override;
-    void present(const void* pixels) override;
+    void present(const void* pixels, FrameDiagnostics* diagnostics = nullptr) override;
     void shutdown() override;
 };
 

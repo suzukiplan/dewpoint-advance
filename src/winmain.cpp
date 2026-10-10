@@ -13,6 +13,7 @@
 #endif
 
 #include "audio_prebuffer.h"
+#include "frame_diagnostics.h"
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
 #include "keymap.h"
@@ -990,8 +991,9 @@ class Direct3DRenderer
 
     void requestReset() { resetRequested = true; }
 
-    bool render(const uint32_t* pixels)
+    bool render(const uint32_t* pixels, FrameDiagnostics* diagnostics = nullptr)
     {
+        FrameDiagnostics::Scope renderTiming(diagnostics, FrameDiagnostics::Render);
         if (!device || !texture || IsIconic(window)) {
             return true;
         }
@@ -1003,24 +1005,28 @@ class Direct3DRenderer
             return true;
         }
 
-        D3DLOCKED_RECT locked{};
-        HRESULT result = texture->LockRect(0, &locked, nullptr, 0);
-        if (FAILED(result)) {
-            writeLog("IDirect3DTexture9::LockRect failed: %08lX", result);
-            return false;
-        }
-        for (int y = 0; y < GBA_VRAM_HEIGHT; ++y) {
-            auto* destination = reinterpret_cast<uint32_t*>(
-                static_cast<uint8_t*>(locked.pBits) + y * locked.Pitch);
-            const uint32_t* source = pixels + y * GBA_VRAM_WIDTH;
-            for (int x = 0; x < GBA_VRAM_WIDTH; ++x) {
-                const uint32_t pixel = source[x];
-                destination[x] = 0xFF000000U | (pixel & 0x0000FF00U) |
-                                 ((pixel & 0x000000FFU) << 16) |
-                                 ((pixel & 0x00FF0000U) >> 16);
+        HRESULT result;
+        {
+            FrameDiagnostics::Scope textureTiming(diagnostics, FrameDiagnostics::Texture);
+            D3DLOCKED_RECT locked{};
+            result = texture->LockRect(0, &locked, nullptr, 0);
+            if (FAILED(result)) {
+                writeLog("IDirect3DTexture9::LockRect failed: %08lX", result);
+                return false;
             }
+            for (int y = 0; y < GBA_VRAM_HEIGHT; ++y) {
+                auto* destination = reinterpret_cast<uint32_t*>(
+                    static_cast<uint8_t*>(locked.pBits) + y * locked.Pitch);
+                const uint32_t* source = pixels + y * GBA_VRAM_WIDTH;
+                for (int x = 0; x < GBA_VRAM_WIDTH; ++x) {
+                    const uint32_t pixel = source[x];
+                    destination[x] = 0xFF000000U | (pixel & 0x0000FF00U) |
+                                     ((pixel & 0x000000FFU) << 16) |
+                                     ((pixel & 0x00FF0000U) >> 16);
+                }
+            }
+            texture->UnlockRect(0);
         }
-        texture->UnlockRect(0);
 
         RECT client{};
         GetClientRect(window, &client);
@@ -1081,7 +1087,11 @@ class Direct3DRenderer
             return false;
         }
 
-        result = device->Present(nullptr, nullptr, nullptr, nullptr);
+        {
+            FrameDiagnostics::Scope presentTiming(diagnostics, FrameDiagnostics::Present);
+            result = device->Present(nullptr, nullptr, nullptr, nullptr);
+        }
+        if (diagnostics) { diagnostics->submitted = SUCCEEDED(result); }
         if (result == D3DERR_DEVICELOST) {
             resetRequested = true;
             return true;
@@ -2070,7 +2080,7 @@ class ScopedTimerResolution
 void printUsage(const char* executable)
 {
     writeLog(
-        "Usage: %s [-s <save.dat>] [-c <config.dat>] [-f <crt|lcd|no>] [rom.gba]",
+        "Usage: %s [-v] [-s <save.dat>] [-c <config.dat>] [-f <crt|lcd|no>] [rom.gba]",
         executable);
 }
 } // namespace
@@ -2101,10 +2111,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     std::string configPath = "config.dat";
     bool usesDefaultSramPath = true;
     bool usesDefaultConfigPath = true;
+    bool diagnosticMode = false;
     VideoFilter videoFilter = VideoFilter::None;
     for (int i = 1; i < __argc; ++i) {
         const std::string argument = __argv[i];
-        if (argument == "-s" || argument == "-c" || argument == "-f") {
+        if (argument == "-v") {
+            diagnosticMode = true;
+        } else if (argument == "-s" || argument == "-c" || argument == "-f") {
             if (++i >= __argc) {
                 printUsage(__argv[0]);
                 return 1;
@@ -2315,6 +2328,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         return true;
     }, config.dmg_vol, config.pcm_vol);
 
+    FrameDiagnostics diagnosticLog([](const std::string& text) { writeLog("%s", text.c_str()); });
+    FrameDiagnostics* diagnostics = diagnosticMode ? &diagnosticLog : nullptr;
+    if (diagnostics) {
+        const std::string text = "[diag] enabled: CPU timings in ms; render includes texture/present/wait; 1s summaries plus worst hitch context (max 4 lines/window); DIAG marker active\n";
+        writeLog("%s", text.c_str());
+    }
+
     int exitCode = 0;
     bool steamOverlayActive = false;
     mGBAHelper::KeyState regularKeyState{};
@@ -2376,10 +2396,20 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         if (dewpoint.takeExitRequest(&exitCode)) {
             break;
         }
+        if (diagnostics) {
+            diagnostics->begin(windowState.paused);
+        }
         if (windowState.paused) {
             // Steam's overlay needs continuous presentation even while the
             // emulation and audio are paused. Redraw the last game frame.
-            if (!renderer.render(gba.getVram())) {
+            const bool rendered = renderer.render(
+                diagnostics ? diagnostics->markedPixels(
+                    gba.getVram(), GBA_VRAM_WIDTH, GBA_VRAM_HEIGHT) : gba.getVram(),
+                diagnostics);
+            if (diagnostics) {
+                diagnostics->finish();
+            }
+            if (!rendered) {
                 windowState.running = false;
                 exitCode = 1;
                 break;
@@ -2406,7 +2436,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
                 rapidBHeld,
                 &rapidAState,
                 &rapidBState);
-            gba.tick();
+            {
+                FrameDiagnostics::Scope timing(diagnostics, FrameDiagnostics::Emulation);
+                gba.tick();
+            }
+            if (diagnostics) {
+                ++diagnostics->emulationFrames;
+            }
             emulationAdvanced = true;
 
             size_t soundSize = 0;
@@ -2426,7 +2462,14 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             break;
         }
         if (emulationAdvanced) {
-            if (!renderer.render(gba.getVram())) {
+            const bool rendered = renderer.render(
+                diagnostics ? diagnostics->markedPixels(
+                    gba.getVram(), GBA_VRAM_WIDTH, GBA_VRAM_HEIGHT) : gba.getVram(),
+                diagnostics);
+            if (diagnostics) {
+                diagnostics->finish();
+            }
+            if (!rendered) {
                 windowState.running = false;
                 exitCode = 1;
             }

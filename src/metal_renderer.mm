@@ -515,14 +515,16 @@ class MetalRenderer::Implementation
         return true;
     }
 
-    void present(const void* pixels)
+    void present(const void* pixels, FrameDiagnostics* diagnostics)
     {
+        FrameDiagnostics::Scope renderTiming(diagnostics, FrameDiagnostics::Render);
         if (!pixels || !window || !layer || !commandQueue ||
             !pipeline || !texture) {
             return;
         }
 
         if (inFlightCommandBuffer) {
+            FrameDiagnostics::Scope waitTiming(diagnostics, FrameDiagnostics::Wait);
             [inFlightCommandBuffer waitUntilCompleted];
             inFlightCommandBuffer = nil;
         }
@@ -537,7 +539,11 @@ class MetalRenderer::Implementation
             CGSizeMake(static_cast<CGFloat>(drawableWidth),
                        static_cast<CGFloat>(drawableHeight));
 
-        id<CAMetalDrawable> drawable = [layer nextDrawable];
+        id<CAMetalDrawable> drawable;
+        {
+            FrameDiagnostics::Scope waitTiming(diagnostics, FrameDiagnostics::Wait);
+            drawable = [layer nextDrawable];
+        }
         if (!drawable) {
             return;
         }
@@ -547,10 +553,13 @@ class MetalRenderer::Implementation
             0,
             static_cast<NSUInteger>(inputWidth),
             static_cast<NSUInteger>(inputHeight));
-        [texture replaceRegion:textureRegion
-                  mipmapLevel:0
-                    withBytes:pixels
-                  bytesPerRow:static_cast<NSUInteger>(inputWidth) * 4];
+        {
+            FrameDiagnostics::Scope textureTiming(diagnostics, FrameDiagnostics::Texture);
+            [texture replaceRegion:textureRegion
+                      mipmapLevel:0
+                        withBytes:pixels
+                      bytesPerRow:static_cast<NSUInteger>(inputWidth) * 4];
+        }
 
         MTLRenderPassDescriptor* renderPass =
             [MTLRenderPassDescriptor renderPassDescriptor];
@@ -616,8 +625,12 @@ class MetalRenderer::Implementation
                    vertexStart:0
                    vertexCount:3];
         [encoder endEncoding];
-        [commandBuffer presentDrawable:drawable];
-        [commandBuffer commit];
+        {
+            FrameDiagnostics::Scope presentTiming(diagnostics, FrameDiagnostics::Present);
+            [commandBuffer presentDrawable:drawable];
+            [commandBuffer commit];
+        }
+        if (diagnostics) { diagnostics->submitted = true; }
         inFlightCommandBuffer = commandBuffer;
     }
 
@@ -662,9 +675,9 @@ bool MetalRenderer::usesVsync() const
     return implementation->usesVsync();
 }
 
-void MetalRenderer::present(const void* pixels)
+void MetalRenderer::present(const void* pixels, FrameDiagnostics* diagnostics)
 {
-    implementation->present(pixels);
+    implementation->present(pixels, diagnostics);
 }
 
 void MetalRenderer::shutdown()
