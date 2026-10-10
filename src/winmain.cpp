@@ -2036,6 +2036,37 @@ void applyRapidFire(
     state->b = state->b || rapidB;
 }
 
+// The audio-driven loop may skip Present, so its short sleeps must not rely
+// on Direct3D or another process requesting a finer system timer resolution.
+class ScopedTimerResolution
+{
+  public:
+    ScopedTimerResolution() : result(timeBeginPeriod(1))
+    {
+        if (result != TIMERR_NOERROR) {
+            writeLog("timeBeginPeriod(1) failed: %u", static_cast<unsigned>(result));
+        }
+    }
+
+    ~ScopedTimerResolution()
+    {
+        if (valid()) {
+            const MMRESULT endResult = timeEndPeriod(1);
+            if (endResult != TIMERR_NOERROR) {
+                writeLog("timeEndPeriod(1) failed: %u", static_cast<unsigned>(endResult));
+            }
+        }
+    }
+
+    ScopedTimerResolution(const ScopedTimerResolution&) = delete;
+    ScopedTimerResolution& operator=(const ScopedTimerResolution&) = delete;
+
+    bool valid() const { return result == TIMERR_NOERROR; }
+
+  private:
+    const MMRESULT result;
+};
+
 void printUsage(const char* executable)
 {
     writeLog(
@@ -2060,6 +2091,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     }
 
     ScopedLogger logger;
+    ScopedTimerResolution timerResolution;
+    if (!timerResolution.valid()) {
+        reportError("Failed to request 1 ms timer resolution. See log.txt for details.");
+        return 1;
+    }
     std::string romPath;
     std::string sramPath = "save.dat";
     std::string configPath = "config.dat";
@@ -2358,6 +2394,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             exitCode = 1;
             break;
         }
+        bool emulationAdvanced = false;
         for (int refill = 0;
              refill < MAX_AUDIO_REFILL_FRAMES &&
              bufferedAudioBytes < audio.targetBufferedBytes();
@@ -2370,6 +2407,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
                 &rapidAState,
                 &rapidBState);
             gba.tick();
+            emulationAdvanced = true;
 
             size_t soundSize = 0;
             uint16_t* sound = gba.dequeSound(&soundSize);
@@ -2387,9 +2425,14 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         if (!windowState.running) {
             break;
         }
-        if (!renderer.render(gba.getVram())) {
-            windowState.running = false;
-            exitCode = 1;
+        if (emulationAdvanced) {
+            if (!renderer.render(gba.getVram())) {
+                windowState.running = false;
+                exitCode = 1;
+            }
+        } else {
+            // Skipping Present also skips its VSync wait; avoid busy-spinning.
+            Sleep(1);
         }
     }
 
