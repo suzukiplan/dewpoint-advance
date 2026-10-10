@@ -91,3 +91,27 @@ trigger presentation when the scene is visually static.
 
 These are device/recording integration checks; they require real Windows and
 SDL graphics environments and are not covered by the portable unit tests.
+
+## Windows audio polling timer resolution
+
+Windows requests 1 ms timer resolution with `timeBeginPeriod(1)` before runtime
+initialization. A noncopyable scope guard releases a successful request with
+`timeEndPeriod(1)` on normal exit and early returns. Failure to request the
+resolution is logged and stops startup instead of silently using coarse waits.
+`winmm.lib` is already linked by the Windows build.
+
+On Windows, verify with API breakpoints/fault injection:
+
+1. Normal startup/shutdown: one successful begin call and one matching end call.
+2. Force a later startup failure or a gameplay render error: the matching end
+   call must still occur.
+3. Force `timeBeginPeriod` to fail: startup reports an error and returns 1,
+   without calling `timeEndPeriod` for the failed request.
+4. Force `timeEndPeriod` to fail: the failure must appear in log.txt.
+5. At 60/120/144/240 Hz, compare audio polling intervals and visible/recorded
+   frame pacing. Check the idle branch with recording enabled and disabled.
+
+A 1 ms resolution request does not guarantee an exact 1 ms wakeup under load.
+Windows 11 may stop honoring higher resolution when an app is fully occluded,
+minimized or otherwise invisible/inaudible; include minimize/restore in checks.
+Reference: https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod

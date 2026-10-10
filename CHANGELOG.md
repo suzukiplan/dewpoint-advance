@@ -3,6 +3,7 @@
 ## Version 1.4.1
 
 - Skipped redundant gameplay presentation when no emulation frame advances on Windows and SDL runtimes, with an idle wait to avoid busy-spinning and continuous presentation preserved while paused for the Steam overlay
+- Explicitly requested 1 ms timer resolution on Windows for audio polling waits, with balanced release on exit and an initialization error if the request fails
 
 ## Version 1.4.0
 
