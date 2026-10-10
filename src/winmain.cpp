@@ -473,6 +473,24 @@ void writeLog(const char* format, ...)
     va_end(arguments);
 }
 
+void writeDiagnosticLog(const std::string& records)
+{
+    if (records.empty()) {
+        return;
+    }
+    std::lock_guard<std::mutex> guard(logMutex);
+    FILE* file = nullptr;
+    if (logPath.empty() || fopen_s(&file, logPath.c_str(), "a") != 0 || !file) {
+        OutputDebugStringA("Failed to open diagnostic log\n");
+        return;
+    }
+    const bool written = DewpointLog::writeTimestampedRecords(file, records);
+    const bool closed = std::fclose(file) == 0;
+    if (!written || !closed) {
+        OutputDebugStringA("Failed to write diagnostic log\n");
+    }
+}
+
 void reportError(const char* message)
 {
     writeLog("%s", message);
@@ -2328,11 +2346,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         return true;
     }, config.dmg_vol, config.pcm_vol);
 
-    FrameDiagnostics diagnosticLog([](const std::string& text) { writeLog("%s", text.c_str()); });
+    FrameDiagnostics diagnosticLog(writeDiagnosticLog);
     FrameDiagnostics* diagnostics = diagnosticMode ? &diagnosticLog : nullptr;
     if (diagnostics) {
         const std::string text = "[diag] enabled: CPU timings in ms; render includes texture/present/wait; 1s summaries plus worst hitch context (max 4 lines/window); DIAG marker active\n";
-        writeLog("%s", text.c_str());
+        writeDiagnosticLog(text);
     }
 
     int exitCode = 0;

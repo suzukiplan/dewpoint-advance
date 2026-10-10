@@ -2,8 +2,6 @@
 
 ## Version 1.5.0
 
-in-progress
-
 - Added opt-in `-v` frame diagnostics with one-second CPU timing summaries, bounded worst-hitch context, emulated frame counts, and a DIAG marker on Windows and SDL renderers
 
 ## Version 1.4.1

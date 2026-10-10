@@ -66,6 +66,32 @@ void testFileTimestampUsesRequiredFormat()
     const std::regex expected(R"(^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} $)");
     assert(std::regex_match(timestamp, expected));
 }
+
+void testDiagnosticBatchesHaveExactlyOneTimestampPerLine()
+{
+    const std::string records = "[diag] summary\n[diag] before\n[diag] hitch\n[diag] after";
+    for (const auto& suffix : {std::string{}, std::string{"\n"}}) {
+        FILE* file = std::tmpfile();
+        assert(file);
+        assert(DewpointLog::writeTimestampedRecords(file, {}));
+        assert(std::ftell(file) == 0);
+        assert(DewpointLog::writeTimestampedRecords(file, records + suffix));
+        std::rewind(file);
+        char line[256];
+        const std::regex expected(R"(^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} \[diag\] (summary|before|hitch|after)\n$)");
+        std::string restored;
+        unsigned lines = 0;
+        while (std::fgets(line, sizeof(line), file)) {
+            assert(std::regex_match(line, expected));
+            restored += std::string(line).substr(DewpointLog::TIMESTAMP_BUFFER_SIZE - 1);
+            ++lines;
+        }
+        assert(lines == 4);
+        assert(restored == records + "\n");
+        std::fclose(file);
+    }
+    assert(!DewpointLog::writeTimestampedRecords(nullptr, records));
+}
 } // namespace
 
 int main()
@@ -74,5 +100,6 @@ int main()
     testEnabledBufferPrefixesEveryRecord();
     testEnableStartsANewTimestampedRecord();
     testFileTimestampUsesRequiredFormat();
+    testDiagnosticBatchesHaveExactlyOneTimestampPerLine();
     return 0;
 }
