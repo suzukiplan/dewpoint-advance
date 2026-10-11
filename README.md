@@ -504,3 +504,18 @@ instant a television displays the image. Asynchronous GPU work can be charged
 at a later wait. Buffer writes, diagnostic marker copying and other main-loop
 work can affect `interval_ms`; they are not part of `emulation_ms`. Diagnostics
 add overhead and do not by themselves establish the cause of a hitch.
+
+
+### Windows exclusive fullscreen (`-e`)
+
+Set the Steam launch option to `-e` to start in Direct3D 9 exclusive fullscreen.
+Combine it with diagnostics using `-e -v`. If windowed mode is allowed,
+Alt+Enter/F11 switches to windowed mode and back to exclusive fullscreen.
+Launching without `-e` retains the existing borderless fullscreen behavior.
+
+The exclusive display is fixed to the adapter of the startup window's monitor,
+using a supported mode matching its current resolution and refresh rate.
+Moving the window to another monitor does not migrate the exclusive adapter;
+re-entering fullscreen returns to the startup monitor. An unsupported display
+mode produces an error and a log entry. Fullscreen/windowed state is saved as
+before, but exclusive mode requires `-e` on each launch. Windows only.
