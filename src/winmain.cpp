@@ -724,6 +724,10 @@ class Direct3DRenderer
     D3DPRESENT_PARAMETERS parameters;
     VideoFilter videoFilter;
     bool resetRequested;
+    bool exclusiveAllowed;
+    bool exclusiveFullscreen;
+    UINT adapter;
+    D3DDISPLAYMODE fullscreenMode;
 
     struct Vertex {
         float x;
@@ -738,6 +742,15 @@ class Direct3DRenderer
 
     bool updateBackBufferSize()
     {
+        parameters.Windowed = exclusiveFullscreen ? FALSE : TRUE;
+        parameters.BackBufferCount = 1;
+        parameters.BackBufferFormat = exclusiveFullscreen ? fullscreenMode.Format : D3DFMT_UNKNOWN;
+        parameters.FullScreen_RefreshRateInHz = exclusiveFullscreen ? fullscreenMode.RefreshRate : 0;
+        if (exclusiveFullscreen) {
+            parameters.BackBufferWidth = fullscreenMode.Width;
+            parameters.BackBufferHeight = fullscreenMode.Height;
+            return true;
+        }
         RECT client{};
         if (!GetClientRect(window, &client)) {
             writeLog("GetClientRect failed while sizing the Direct3D back buffer: %lu", GetLastError());
@@ -909,7 +922,10 @@ class Direct3DRenderer
         if (!updateBackBufferSize()) {
             return true;
         }
-        const HRESULT result = device->Reset(&parameters);
+        // Reset mutates its argument, including clearing back-buffer dimensions.
+        // Keep the requested dimensions for viewport setup and future recovery.
+        D3DPRESENT_PARAMETERS requested = parameters;
+        const HRESULT result = device->Reset(&requested);
         if (result == D3DERR_DEVICELOST) {
             return true;
         }
@@ -921,6 +937,10 @@ class Direct3DRenderer
             return false;
         }
         resetRequested = false;
+        writeLog("Direct3D presentation mode: %s, %ux%u, refresh=%u Hz",
+            exclusiveFullscreen ? "exclusive fullscreen" : "windowed/borderless",
+            parameters.BackBufferWidth, parameters.BackBufferHeight,
+            parameters.FullScreen_RefreshRateInHz);
         return true;
     }
 
@@ -934,19 +954,40 @@ class Direct3DRenderer
         , parameters{}
         , videoFilter(VideoFilter::None)
         , resetRequested(false)
+        , exclusiveAllowed(false)
+        , exclusiveFullscreen(false)
+        , adapter(D3DADAPTER_DEFAULT)
+        , fullscreenMode{}
     {
     }
 
     ~Direct3DRenderer() { shutdown(); }
 
-    bool initialize(HWND targetWindow, VideoFilter selectedFilter)
+    bool initialize(HWND targetWindow, VideoFilter selectedFilter, bool enableExclusive)
     {
         window = targetWindow;
         videoFilter = selectedFilter;
+        exclusiveAllowed = enableExclusive;
         d3d = Direct3DCreate9(D3D_SDK_VERSION);
         if (!d3d) {
             writeLog("Direct3DCreate9 failed");
             return false;
+        }
+
+        if (exclusiveAllowed) {
+            const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+            bool found = false;
+            for (UINT index = 0; index < d3d->GetAdapterCount(); ++index) {
+                if (d3d->GetAdapterMonitor(index) == monitor) {
+                    adapter = index;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                writeLog("No Direct3D adapter found for the exclusive fullscreen monitor");
+                return false;
+            }
         }
 
         parameters.Windowed = TRUE;
@@ -960,20 +1001,22 @@ class Direct3DRenderer
             return false;
         }
 
+        D3DPRESENT_PARAMETERS requested = parameters;
         HRESULT result = d3d->CreateDevice(
-            D3DADAPTER_DEFAULT,
+            adapter,
             D3DDEVTYPE_HAL,
             window,
             D3DCREATE_HARDWARE_VERTEXPROCESSING,
-            &parameters,
+            &requested,
             &device);
         if (FAILED(result)) {
+            requested = parameters;
             result = d3d->CreateDevice(
-                D3DADAPTER_DEFAULT,
+                adapter,
                 D3DDEVTYPE_HAL,
                 window,
                 D3DCREATE_SOFTWARE_VERTEXPROCESSING,
-                &parameters,
+                &requested,
                 &device);
         }
         if (FAILED(result)) {
@@ -1007,6 +1050,49 @@ class Direct3DRenderer
         return true;
     }
 
+    HMONITOR fullscreenMonitor() const
+    {
+        // A D3D9 device cannot migrate to another adapter through Reset.
+        return exclusiveAllowed ? d3d->GetAdapterMonitor(adapter)
+            : MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
+    }
+
+    bool requestFullscreen(bool fullscreen)
+    {
+        const bool exclusive = exclusiveAllowed && fullscreen;
+        if (exclusive && !exclusiveFullscreen) {
+            D3DDISPLAYMODE desktop{};
+            HRESULT result = d3d->GetAdapterDisplayMode(adapter, &desktop);
+            if (FAILED(result)) {
+                writeLog("GetAdapterDisplayMode failed: %08lX", result);
+                return false;
+            }
+            bool found = false;
+            const UINT modes = d3d->GetAdapterModeCount(adapter, desktop.Format);
+            for (UINT index = 0; index < modes; ++index) {
+                D3DDISPLAYMODE mode{};
+                if (SUCCEEDED(d3d->EnumAdapterModes(adapter, desktop.Format, index, &mode)) &&
+                    mode.Width == desktop.Width && mode.Height == desktop.Height &&
+                    mode.RefreshRate == desktop.RefreshRate) {
+                    fullscreenMode = mode;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found || FAILED(d3d->CheckDeviceType(adapter, D3DDEVTYPE_HAL,
+                    desktop.Format, desktop.Format, FALSE))) {
+                writeLog("Exclusive fullscreen does not support the current display mode: %ux%u @ %u Hz",
+                    desktop.Width, desktop.Height, desktop.RefreshRate);
+                return false;
+            }
+            writeLog("Requesting exclusive fullscreen: adapter=%u, %ux%u @ %u Hz",
+                adapter, fullscreenMode.Width, fullscreenMode.Height, fullscreenMode.RefreshRate);
+        }
+        exclusiveFullscreen = exclusive;
+        resetRequested = true;
+        return true;
+    }
+
     void requestReset() { resetRequested = true; }
 
     bool render(const uint32_t* pixels, FrameDiagnostics* diagnostics = nullptr)
@@ -1015,12 +1101,24 @@ class Direct3DRenderer
         if (!device || !texture || IsIconic(window)) {
             return true;
         }
-        if (resetRequested && !resetDevice()) {
-            return false;
-        }
-        if (device->TestCooperativeLevel() == D3DERR_DEVICELOST) {
+        const HRESULT cooperative = device->TestCooperativeLevel();
+        if (cooperative == D3DERR_DEVICELOST) {
             resetRequested = true;
             return true;
+        }
+        if (cooperative == D3DERR_DEVICENOTRESET) {
+            resetRequested = true;
+        } else if (FAILED(cooperative)) {
+            writeLog("IDirect3DDevice9::TestCooperativeLevel failed: %08lX", cooperative);
+            return false;
+        }
+        if (resetRequested) {
+            if (!resetDevice()) {
+                return false;
+            }
+            if (resetRequested) {
+                return true; // Recovery is still pending; do not issue draw calls.
+            }
         }
 
         HRESULT result;
@@ -1048,8 +1146,12 @@ class Direct3DRenderer
 
         RECT client{};
         GetClientRect(window, &client);
-        const float clientWidth = static_cast<float>(client.right - client.left);
-        const float clientHeight = static_cast<float>(client.bottom - client.top);
+        const float clientWidth = exclusiveFullscreen
+            ? static_cast<float>(parameters.BackBufferWidth)
+            : static_cast<float>(client.right - client.left);
+        const float clientHeight = exclusiveFullscreen
+            ? static_cast<float>(parameters.BackBufferHeight)
+            : static_cast<float>(client.bottom - client.top);
         if (clientWidth <= 0.0f || clientHeight <= 0.0f) {
             return true;
         }
@@ -1727,8 +1829,13 @@ bool setFullscreen(WindowState* state, bool fullscreen)
         rememberWindowedState(state);
         MONITORINFO monitor{};
         monitor.cbSize = sizeof(monitor);
-        const HMONITOR target = MonitorFromWindow(state->window, MONITOR_DEFAULTTOPRIMARY);
+        const HMONITOR target = state->renderer ? state->renderer->fullscreenMonitor()
+            : MonitorFromWindow(state->window, MONITOR_DEFAULTTOPRIMARY);
         if (!GetMonitorInfoW(target, &monitor)) {
+            return state->fullscreen;
+        }
+        if (state->renderer && !state->renderer->requestFullscreen(true)) {
+            reportError("Failed to select fullscreen display mode. See log.txt for details.");
             return state->fullscreen;
         }
         state->fullscreen = true;
@@ -1744,6 +1851,9 @@ bool setFullscreen(WindowState* state, bool fullscreen)
             SWP_FRAMECHANGED | SWP_SHOWWINDOW);
         ShowCursor(FALSE);
     } else {
+        if (state->renderer && !state->renderer->requestFullscreen(false)) {
+            return state->fullscreen;
+        }
         SetWindowLongPtrW(state->window, GWL_EXSTYLE, 0);
         SetWindowLongPtrW(state->window, GWL_STYLE, WS_OVERLAPPEDWINDOW);
         RECT outer{0, 0, state->windowedWidth, state->windowedHeight};
@@ -2098,7 +2208,7 @@ class ScopedTimerResolution
 void printUsage(const char* executable)
 {
     writeLog(
-        "Usage: %s [-v] [-s <save.dat>] [-c <config.dat>] [-f <crt|lcd|no>] [rom.gba]",
+        "Usage: %s [-v] [-e] [-s <save.dat>] [-c <config.dat>] [-f <crt|lcd|no>] [rom.gba]",
         executable);
 }
 } // namespace
@@ -2130,11 +2240,14 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     bool usesDefaultSramPath = true;
     bool usesDefaultConfigPath = true;
     bool diagnosticMode = false;
+    bool exclusiveFullscreen = false;
     VideoFilter videoFilter = VideoFilter::None;
     for (int i = 1; i < __argc; ++i) {
         const std::string argument = __argv[i];
         if (argument == "-v") {
             diagnosticMode = true;
+        } else if (argument == "-e") {
+            exclusiveFullscreen = true;
         } else if (argument == "-s" || argument == "-c" || argument == "-f") {
             if (++i >= __argc) {
                 printUsage(__argv[0]);
@@ -2318,7 +2431,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     DirectSoundOutput audio;
     windowState.renderer = &renderer;
     windowState.audio = &audio;
-    if (!renderer.initialize(window, videoFilter) || !audio.initialize(window)) {
+    if (!renderer.initialize(window, videoFilter, exclusiveFullscreen) || !audio.initialize(window)) {
         reportError("Failed to initialize DirectX. See log.txt for details.");
         renderer.shutdown();
         audio.shutdown();
@@ -2328,8 +2441,15 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         return 1;
     }
 
-    if (!windowState.allowWindowed || config.fullscreen == -1) {
-        setFullscreen(&windowState, true);
+    if (exclusiveFullscreen || !windowState.allowWindowed || config.fullscreen == -1) {
+        if (!setFullscreen(&windowState, true) && exclusiveFullscreen) {
+            renderer.shutdown();
+            audio.shutdown();
+            DestroyWindow(window);
+            activeWindow = nullptr;
+            UnregisterClassW(WINDOW_CLASS_NAME, instance);
+            return 1;
+        }
     }
     dewpoint.setFullscreenCallbacks(
         [&windowState](bool fullscreen) {
