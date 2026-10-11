@@ -115,3 +115,49 @@ A 1 ms resolution request does not guarantee an exact 1 ms wakeup under load.
 Windows 11 may stop honoring higher resolution when an app is fully occluded,
 minimized or otherwise invisible/inaudible; include minimize/restore in checks.
 Reference: https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod
+
+## Opt-in frame diagnostics
+
+1. Launch with `-v` on Windows, OpenGL, Metal and Vulkan. Check the small DIAG
+   panel at the top right of the game image, including with CRT/LCD filters,
+   pause/overlay, resize and fullscreen changes. Without `-v`, neither the
+   panel nor `[diag]` frame records should appear.
+2. Compare identical scenes with recording off/on. Verify `frames` is 0 while
+   paused and can exceed 1 during catch-up. Present/texture/emulation timings
+   should be nonnegative; no-draw iterations should not produce records.
+3. Exit before one second and confirm the partial summary is logged. Normal
+   operation should produce one summary per second; repeated hitches must stay
+   within four lines per window, with all hitches counted. API failures should
+   increase `not_submitted` and retain existing error handling. Check the worst
+   candidate and available neighbours; individual draw sequence numbers need
+   not be contiguous across windows.
+4. Check `game -v`, `game -v -f no`, and `game path/to/rom.gba -v` option parsing.
+   Repeat with no `-v` to confirm existing ROM/save/filter options still work.
+5. Interpret durations as CPU call times: do not compare asynchronous Metal or
+   Vulkan submission time directly against GPU execution time. `render_ms`
+   includes `texture_ms`, `present_ms` and `wait_ms` rather than adding to them.
+
+The portable `frame_diagnostics_test` uses a deterministic clock to verify
+summary timing, bounded hitch context, counters/maxima, final flush, failures,
+paused records, disabled scopes and marker isolation from
+VRAM, including null/undersized image inputs. Platform rendering and recording
+checks above still require their native devices.
+
+### Diagnostic LAG marker
+
+With `-v`, inject presentation delays above 20 ms and verify a red LAG panel at
+the bottom right of the game image on the next draw. Restore intervals to 20 ms
+or less and verify it clears on the following draw. Repeat on Windows, OpenGL,
+Metal and Vulkan, including filters and fullscreen. Confirm pause hides LAG,
+resume/first presentation after device unavailability does not count the gap,
+and without `-v` neither marker appears. The mark uses CPU presentation-completion
+intervals; it cannot update the screen while the rendering thread is blocked.
+The deterministic unit test covers the exact 50 fps boundary, recovery, pause,
+failed submissions and display-copy isolation.
+
+LAG state changes must produce exactly one `[diag] LAG ON` or `LAG OFF` record
+when the marked/unmarked image is successfully submitted. Verify no repeated
+records during sustained lag or normal pacing, no initial OFF record, and no
+transition for a failed presentation. Pausing while LAG is visible should log
+OFF on the first successful paused draw. Transition records are immediate and
+are additional to the four-line summary/context limit.

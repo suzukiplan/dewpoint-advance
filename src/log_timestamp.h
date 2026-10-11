@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <ctime>
 #include <streambuf>
+#include <string_view>
 
 namespace DewpointLog
 {
@@ -42,6 +43,29 @@ inline void writeTimestamp(FILE* file)
         return;
     }
     std::fputs(timestamp, file);
+}
+
+// Write a batch without adding a blank record after an existing final newline.
+// The caller owns the file and can keep one lock/open operation for the batch.
+inline bool writeTimestampedRecords(FILE* file, std::string_view records)
+{
+    if (!file) {
+        return false;
+    }
+    while (!records.empty()) {
+        const size_t newline = records.find('\n');
+        const size_t length = newline == std::string_view::npos ? records.size() : newline;
+        char timestamp[TIMESTAMP_BUFFER_SIZE]{};
+        const char* prefix = formatCurrentTimestamp(timestamp, sizeof(timestamp))
+            ? timestamp : UNKNOWN_TIMESTAMP;
+        if (std::fputs(prefix, file) == EOF ||
+            std::fwrite(records.data(), 1, length, file) != length ||
+            std::fputc('\n', file) == EOF) {
+            return false;
+        }
+        records.remove_prefix(length + (newline == std::string_view::npos ? 0 : 1));
+    }
+    return true;
 }
 
 class TimestampStreamBuf final : public std::streambuf

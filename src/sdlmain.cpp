@@ -23,6 +23,7 @@
  * THE SOFTWARE.
  */
 #include "audio_prebuffer.h"
+#include "frame_diagnostics.h"
 #include "dewpoint_runtime.h"
 #include "dewpoint_define.h"
 #include "keymap.h"
@@ -675,8 +676,9 @@ class OpenGlRenderer final : public VideoRenderer
         return vsyncEnabled;
     }
 
-    void present(const void* pixels) override
+    void present(const void* pixels, FrameDiagnostics* diagnostics = nullptr) override
     {
+        FrameDiagnostics::Scope renderTiming(diagnostics, FrameDiagnostics::Render);
         int drawableWidth = 0;
         int drawableHeight = 0;
         SDL_GL_GetDrawableSize(window, &drawableWidth, &drawableHeight);
@@ -701,16 +703,19 @@ class OpenGlRenderer final : public VideoRenderer
         gl.useProgram(program);
         gl.activeTexture(GL_TEXTURE0_VALUE);
         gl.bindTexture(GL_TEXTURE_2D_VALUE, texture);
-        gl.texSubImage2D(
-            GL_TEXTURE_2D_VALUE,
-            0,
-            0,
-            0,
-            inputWidth,
-            inputHeight,
-            GL_RGBA_VALUE,
-            GL_UNSIGNED_BYTE_VALUE,
-            pixels);
+        {
+            FrameDiagnostics::Scope textureTiming(diagnostics, FrameDiagnostics::Texture);
+            gl.texSubImage2D(
+                GL_TEXTURE_2D_VALUE,
+                0,
+                0,
+                0,
+                inputWidth,
+                inputHeight,
+                GL_RGBA_VALUE,
+                GL_UNSIGNED_BYTE_VALUE,
+                pixels);
+        }
         gl.uniform2f(
             inputSizeLocation,
             static_cast<GlFloat>(inputWidth),
@@ -730,7 +735,11 @@ class OpenGlRenderer final : public VideoRenderer
         gl.enableVertexAttribArray(static_cast<GlUint>(positionLocation));
         gl.drawArrays(GL_TRIANGLES_VALUE, 0, 6);
         gl.disableVertexAttribArray(static_cast<GlUint>(positionLocation));
-        SDL_GL_SwapWindow(window);
+        {
+            FrameDiagnostics::Scope presentTiming(diagnostics, FrameDiagnostics::Present);
+            SDL_GL_SwapWindow(window);
+        }
+        if (diagnostics) { diagnostics->submitted = true; }
     }
 
     void shutdown() override
@@ -1090,7 +1099,7 @@ void updateCursorVisibility(SDL_Window* window)
 void printUsage(const char* executable)
 {
     std::cerr << "Usage: " << executable
-              << " [-s <save.dat>] [-c <config.dat>] [-f <crt|lcd|no>] [rom.gba]\n";
+              << " [-v] [-s <save.dat>] [-c <config.dat>] [-f <crt|lcd|no>] [rom.gba]\n";
 }
 
 bool getApplicationInstallDirectory(std::string* installDirectory)
@@ -1212,10 +1221,13 @@ int main(int argc, char* argv[])
     std::string configPath = "config.dat";
     bool usesDefaultSramPath = true;
     bool usesDefaultConfigPath = true;
+    bool diagnosticMode = false;
     VideoFilter videoFilter = VideoFilter::None;
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
-        if (argument == "-s" || argument == "-c" || argument == "-f") {
+        if (argument == "-v") {
+            diagnosticMode = true;
+        } else if (argument == "-s" || argument == "-c" || argument == "-f") {
             if (++i >= argc) {
                 printUsage(argv[0]);
                 return 1;
@@ -1550,6 +1562,13 @@ int main(int argc, char* argv[])
         audioPlaybackStarted = false;
         SDL_PauseAudioDevice(audioDevice, 1);
     };
+    FrameDiagnostics diagnosticLog([](const std::string& text) { std::cerr << text; });
+    FrameDiagnostics* diagnostics = diagnosticMode ? &diagnosticLog : nullptr;
+    if (diagnostics) {
+        const std::string text = "[diag] enabled: CPU timings in ms; render includes texture/present/wait; 1s summaries plus worst hitch context (max 4 lines/window, plus LAG transitions); DIAG marker active\n";
+        std::cerr << text;
+    }
+
     int exitCode = 0;
     SdlKeyboardState keyboardState{};
     dewpoint.setKeyboardCallbacks(
@@ -1697,10 +1716,19 @@ int main(int argc, char* argv[])
         if (dewpoint.takeExitRequest(&exitCode)) {
             break;
         }
+        if (diagnostics) {
+            diagnostics->begin(paused);
+        }
         if (paused) {
             // Steam's overlay needs continuous presentation even while the
             // emulation and audio are paused. Redraw the last game frame.
-            renderer->present(gba.getVram());
+            renderer->present(
+                diagnostics ? diagnostics->markedPixels(
+                    gba.getVram(), GBA_VRAM_WIDTH, GBA_VRAM_HEIGHT) : gba.getVram(),
+                diagnostics);
+            if (diagnostics) {
+                diagnostics->finish();
+            }
             SDL_Delay(10);
             continue;
         }
@@ -1729,7 +1757,13 @@ int main(int argc, char* argv[])
                 keyboardState.rapidB,
                 &rapidAState,
                 &rapidBState);
-            gba.tick();
+            {
+                FrameDiagnostics::Scope timing(diagnostics, FrameDiagnostics::Emulation);
+                gba.tick();
+            }
+            if (diagnostics) {
+                ++diagnostics->emulationFrames;
+            }
             emulationAdvanced = true;
 
             size_t soundSize = 0;
@@ -1763,7 +1797,13 @@ int main(int argc, char* argv[])
         }
 
         if (emulationAdvanced) {
-            renderer->present(gba.getVram());
+            renderer->present(
+                diagnostics ? diagnostics->markedPixels(
+                    gba.getVram(), GBA_VRAM_WIDTH, GBA_VRAM_HEIGHT) : gba.getVram(),
+                diagnostics);
+            if (diagnostics) {
+                diagnostics->finish();
+            }
         } else {
             // Skipping presentation also skips its VSync wait.
             SDL_Delay(1);

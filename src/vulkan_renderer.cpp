@@ -1430,8 +1430,9 @@ class VulkanRenderer::Implementation
         return true;
     }
 
-    void present(const void* pixels)
+    void present(const void* pixels, FrameDiagnostics* diagnostics)
     {
+        FrameDiagnostics::Scope renderTiming(diagnostics, FrameDiagnostics::Render);
         if (device == VK_NULL_HANDLE || !pixels) {
             return;
         }
@@ -1440,25 +1441,29 @@ class VulkanRenderer::Implementation
                 return;
             }
         }
-        if (!checkResult(
-                api.vkWaitForFences(
-                    device,
-                    1,
-                    &frameFinished,
-                    VK_TRUE,
-                    std::numeric_limits<uint64_t>::max()),
-                "vkWaitForFences")) {
-            return;
-        }
-
         uint32_t imageIndex = 0;
-        const VkResult acquireResult = api.vkAcquireNextImageKHR(
-            device,
-            swapchain,
-            std::numeric_limits<uint64_t>::max(),
-            imageAvailable,
-            VK_NULL_HANDLE,
-            &imageIndex);
+        VkResult acquireResult;
+        {
+            FrameDiagnostics::Scope waitTiming(diagnostics, FrameDiagnostics::Wait);
+            if (!checkResult(
+                    api.vkWaitForFences(
+                        device,
+                        1,
+                        &frameFinished,
+                        VK_TRUE,
+                        std::numeric_limits<uint64_t>::max()),
+                    "vkWaitForFences")) {
+                return;
+            }
+
+            acquireResult = api.vkAcquireNextImageKHR(
+                device,
+                swapchain,
+                std::numeric_limits<uint64_t>::max(),
+                imageAvailable,
+                VK_NULL_HANDLE,
+                &imageIndex);
+        }
         if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
             recreateSwapchain();
             return;
@@ -1468,10 +1473,13 @@ class VulkanRenderer::Implementation
             return;
         }
 
-        std::memcpy(
-            stagingPixels,
-            pixels,
-            static_cast<size_t>(inputWidth) * inputHeight * 4);
+        {
+            FrameDiagnostics::Scope textureTiming(diagnostics, FrameDiagnostics::Texture);
+            std::memcpy(
+                stagingPixels,
+                pixels,
+                static_cast<size_t>(inputWidth) * inputHeight * 4);
+        }
         if (!checkResult(
                 api.vkResetCommandBuffer(commandBuffer, 0),
                 "vkResetCommandBuffer")) {
@@ -1488,7 +1496,10 @@ class VulkanRenderer::Implementation
                 "vkBeginCommandBuffer")) {
             return;
         }
-        recordTextureUpload();
+        {
+            FrameDiagnostics::Scope textureTiming(diagnostics, FrameDiagnostics::Texture);
+            recordTextureUpload();
+        }
         recordDraw(imageIndex);
         if (!checkResult(
                 api.vkEndCommandBuffer(commandBuffer),
@@ -1527,7 +1538,14 @@ class VulkanRenderer::Implementation
             &imageIndex,
             nullptr,
         };
-        const VkResult presentResult = api.vkQueuePresentKHR(queue, &presentInfo);
+        VkResult presentResult;
+        {
+            FrameDiagnostics::Scope presentTiming(diagnostics, FrameDiagnostics::Present);
+            presentResult = api.vkQueuePresentKHR(queue, &presentInfo);
+        }
+        if (diagnostics) {
+            diagnostics->submitted = presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR;
+        }
         if (presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
             presentResult == VK_SUBOPTIMAL_KHR ||
             acquireResult == VK_SUBOPTIMAL_KHR) {
@@ -1644,9 +1662,9 @@ bool VulkanRenderer::usesVsync() const
     return implementation->usesVsync();
 }
 
-void VulkanRenderer::present(const void* pixels)
+void VulkanRenderer::present(const void* pixels, FrameDiagnostics* diagnostics)
 {
-    implementation->present(pixels);
+    implementation->present(pixels, diagnostics);
 }
 
 void VulkanRenderer::shutdown()
@@ -1677,7 +1695,7 @@ bool VulkanRenderer::usesVsync() const
     return false;
 }
 
-void VulkanRenderer::present(const void*)
+void VulkanRenderer::present(const void*, FrameDiagnostics*)
 {
 }
 

@@ -5,7 +5,7 @@ CXXFLAGS += -std=c++17 -Wall -Wextra -Wpedantic
 CFLAGS ?= -O2 -g
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic
 
-TARGETS := audio_prebuffer_test runtime_config_test highscore_store_test keymap_test log_timestamp_test steam_utils_compat_test ugc_codec_test
+TARGETS := frame_diagnostics_test audio_prebuffer_test runtime_config_test highscore_store_test keymap_test log_timestamp_test steam_utils_compat_test ugc_codec_test
 CODEC_BUILD_DIR := build
 CODEC_OBJECTS := $(CODEC_BUILD_DIR)/ugc_codec.o \
 	$(CODEC_BUILD_DIR)/lz4.o \
@@ -16,6 +16,9 @@ CODEC_OBJECTS := $(CODEC_BUILD_DIR)/ugc_codec.o \
 .PHONY: all test clean
 
 all: $(TARGETS)
+
+frame_diagnostics_test: frame_diagnostics_test.cpp ../src/frame_diagnostics.h
+	$(CXX) $(CXXFLAGS) -I../src frame_diagnostics_test.cpp -o $@
 
 audio_prebuffer_test: audio_prebuffer_test.cpp ../src/audio_prebuffer.h
 	$(CXX) $(CXXFLAGS) -I../src audio_prebuffer_test.cpp -o $@
@@ -47,6 +50,7 @@ $(CODEC_BUILD_DIR)/%.o: ../src/lz4/%.c
 	$(CC) $(CFLAGS) -I../src/lz4 -c $< -o $@
 
 test: $(TARGETS)
+	./frame_diagnostics_test
 	./audio_prebuffer_test
 	./runtime_config_test
 	./highscore_store_test

@@ -2,6 +2,7 @@
 #define VIDEO_RENDERER_H
 
 #include "video_filter.h"
+#include "frame_diagnostics.h"
 
 class VideoRenderer
 {
@@ -13,7 +14,7 @@ class VideoRenderer
         int height,
         VideoFilter filter) = 0;
     virtual bool usesVsync() const = 0;
-    virtual void present(const void* pixels) = 0;
+    virtual void present(const void* pixels, FrameDiagnostics* diagnostics = nullptr) = 0;
     virtual void shutdown() = 0;
 };
 

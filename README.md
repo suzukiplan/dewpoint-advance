@@ -439,3 +439,67 @@ Bindings unavailable in the current keyboard layout temporarily use their defaul
 `dpa_keyboard_get()` and the A/B character labels report these effective bindings.
 The configured bindings are retained and restored when a compatible layout returns;
 saving an unrelated button change never persists temporary fallback assignments.
+
+### Frame diagnostics (`-v`)
+
+Add `-v` to the Steam launch options, or run `game -v` (`game.exe -v` on
+Windows). A small **DIAG** marker appears at the top right of the game image,
+including while paused. This marker is applied only to a display copy, not to
+emulated VRAM. Omit `-v` to disable the marker and diagnostic records.
+
+A red **LAG** marker appears at the bottom right of the game image when
+consecutive successful gameplay presentations finish more than 20 ms apart
+(instantaneous presentation rate below 50 fps). It clears at intervals of 20 ms
+or less. The completed interval is reflected one draw later; this measures CPU
+presentation completion, not configured monitor Hz or physical scanout. Startup,
+paused draws and the first presentation after a failed submission are excluded.
+
+Each successfully submitted change in marker visibility immediately logs
+`[diag] LAG ON` or `[diag] LAG OFF`, including draw sequence and elapsed time.
+Unchanged states, the initial hidden state and failed submissions do not emit
+transitions. These events are separate from the bounded summaries below;
+frequent ON/OFF changes can therefore exceed four total lines per second.
+
+`[diag] summary` is written to the usual `log.txt` about once per second
+(on the next draw), with draw/frame counts, catch-up/failure/pause/anomaly counts,
+maximum frame count and interval, and average/maximum CPU times for every phase.
+Averages are per attempted draw, including paused/unsuccessful draws. The final
+partial window is flushed on normal shutdown; a crash can lose that window.
+
+Anomalies are unsuccessful submissions, or during gameplay: multiple emulated
+frames per draw, intervals over 25 ms (excluding pause transitions), or a phase
+over 16.7 ms. These thresholds flag candidates, not proven performance faults.
+Each window retains only the worst candidate plus its immediate preceding and
+following draws when available (`before` / `hitch` / `after`), at most four log
+lines including the summary. Candidates rank failed submissions first, then the
+largest of interval, render/emulation time and frame count times 16.7 ms. All
+candidates still contribute to counts and per-phase maxima. A neighbour can
+cross the preceding window; no following draw is invented at a window boundary.
+
+Normal output drops from roughly 60 lines/second to one; even continuous hitches
+are bounded to four summary/context lines/window (excluding LAG transitions). Individual minor fluctuations are intentionally
+summarized. Compare the same scene with recording off/on.
+
+The detailed candidate records use these fields (summaries use avg/max variants):
+
+- `draw`, `t_ms`, `interval_ms`: draw sequence, elapsed time since diagnostics
+  initialization, and interval between draw completions (first interval is 0).
+- `frames`: number of emulated frames advanced for this draw. Values above 1
+  indicate catch-up; paused draws have 0. Idle iterations without a draw are
+  not logged.
+- `emulation_ms`: total time spent in `gba.tick()` for this draw.
+- `texture_ms`: Direct3D lock/copy/unlock, OpenGL upload, Metal replacement,
+  or Vulkan staging copy and upload command recording.
+- `present_ms`: Direct3D `Present`, OpenGL swap, Metal present/commit, or Vulkan
+  queue presentation.
+- `wait_ms`: Metal previous-command/drawable waits or Vulkan fence/image waits.
+- `render_ms`: entire renderer call, **including** texture/present/wait times.
+- `paused`, `submitted`: pause state and whether presentation was submitted;
+  unavailable drawables, minimized Windows windows and detected failures may
+  produce `submitted=0`.
+
+All durations are CPU wall-clock milliseconds, not GPU execution times or the
+instant a television displays the image. Asynchronous GPU work can be charged
+at a later wait. Buffer writes, diagnostic marker copying and other main-loop
+work can affect `interval_ms`; they are not part of `emulation_ms`. Diagnostics
+add overhead and do not by themselves establish the cause of a hitch.
