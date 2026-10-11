@@ -54,13 +54,19 @@ class FrameDiagnostics
         markerPrepared = false;
         paused = isPaused;
         if (paused) {
-            slowPresentation = false;
+            slowEmulation = false;
+            rateWindowActive = false;
+            rateFrames = 0;
+        } else if (!rateWindowActive) {
+            rateWindowStart = now();
+            rateWindowActive = true;
         }
     }
 
     void finish()
     {
-        const double elapsed = std::chrono::duration<double, std::milli>(now() - epoch).count();
+        const auto completed = now();
+        const double elapsed = std::chrono::duration<double, std::milli>(completed - epoch).count();
         Sample sample{++draws, elapsed, hasPrevious ? elapsed - previous.elapsed : 0,
                       emulationFrames, paused, submitted, milliseconds};
         // Log the marker in the submitted image, not the next interval's verdict.
@@ -74,10 +80,18 @@ class FrameDiagnostics
                 static_cast<unsigned long long>(draws), elapsed);
             sink(line);
         }
-        // Use consecutive successful gameplay presentations, not monitor Hz.
-        // The result is available for the next display copy (one draw later).
-        slowPresentation = submitted && !paused && hasPrevious &&
-            previous.submitted && !previous.paused && sample.interval > 20.0;
+        // Count emulated frames, including catch-up, independently of presents.
+        // A stalled loop may sample late; normalize by the actual elapsed time.
+        if (!paused && rateWindowActive) {
+            rateFrames += emulationFrames;
+            const double durationMs = std::chrono::duration<double, std::milli>(
+                completed - rateWindowStart).count();
+            if (durationMs >= 1000.0) {
+                slowEmulation = rateFrames * 1000.0 < 50.0 * durationMs;
+                rateFrames = 0;
+                rateWindowStart = completed;
+            }
+        }
         ++count;
         frames += emulationFrames;
         pausedDraws += paused;
@@ -166,7 +180,7 @@ class FrameDiagnostics
             {2, 5, 7, 5, 5}, {3, 4, 5, 5, 3},
         };
         drawMarker(width, 2, glyphs, 0xFFFFFFFFU);
-        if (slowPresentation && height >= 18) {
+        if (slowEmulation && height >= 18) {
             preparedLag = true;
             constexpr unsigned lagGlyphs[3][5] = {
                 {4, 4, 4, 4, 7}, {2, 5, 7, 5, 5}, {3, 4, 5, 5, 3},
@@ -176,7 +190,7 @@ class FrameDiagnostics
         return pixels.data();
     }
 
-    bool isSlowPresentation() const { return slowPresentation; }
+    bool isLagging() const { return slowEmulation; }
 
     unsigned emulationFrames = 0;
     bool submitted = false;
@@ -233,7 +247,10 @@ class FrameDiagnostics
     uint64_t draws = 0, frames = 0;
     unsigned count = 0, pausedDraws = 0, failedDraws = 0, catchupDraws = 0;
     unsigned anomalies = 0, maxFrames = 0;
-    bool slowPresentation = false;
+    bool slowEmulation = false;
+    bool rateWindowActive = false;
+    Clock::time_point rateWindowStart{};
+    uint64_t rateFrames = 0;
     bool markerPrepared = false, preparedLag = false, displayedLag = false;
     bool paused = false, hasPrevious = false, hasWorst = false;
     bool hasBefore = false, hasAfter = false;

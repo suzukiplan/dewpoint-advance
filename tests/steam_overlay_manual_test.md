@@ -145,15 +145,14 @@ checks above still require their native devices.
 
 ### Diagnostic LAG marker
 
-With `-v`, inject presentation delays above 20 ms and verify a red LAG panel at
-the bottom right of the game image on the next draw. Restore intervals to 20 ms
-or less and verify it clears on the following draw. Repeat on Windows, OpenGL,
-Metal and Vulkan, including filters and fullscreen. Confirm pause hides LAG,
-resume/first presentation after device unavailability does not count the gap,
-and without `-v` neither marker appears. The mark uses CPU presentation-completion
-intervals; it cannot update the screen while the rendering thread is blocked.
-The deterministic unit test covers the exact 50 fps boundary, recovery, pause,
-failed submissions and display-copy isolation.
+With `-v`, reduce emulation throughput below 50 game frames/second for at least
+one second and verify LAG appears on the next draw. Restore at least 50 fps for
+the next window and verify it clears. Presentation below 50 fps with catch-up
+maintaining game speed must not trigger LAG. Single long intervals must not
+trigger it if the window still executes at least 50 fps. Repeat on Windows,
+OpenGL, Metal and Vulkan, including pause/resume, filters and fullscreen.
+Pausing resets the measurement; without `-v`, neither marker appears. The unit
+test covers 49/50/60 fps, catch-up, long stalls, transitions and pause exclusion.
 
 LAG state changes must produce exactly one `[diag] LAG ON` or `LAG OFF` record
 when the marked/unmarked image is successfully submitted. Verify no repeated
