@@ -447,12 +447,13 @@ Windows). A small **DIAG** marker appears at the top right of the game image,
 including while paused. This marker is applied only to a display copy, not to
 emulated VRAM. Omit `-v` to disable the marker and diagnostic records.
 
-A red **LAG** marker appears at the bottom right of the game image when
-consecutive successful gameplay presentations finish more than 20 ms apart
-(instantaneous presentation rate below 50 fps). It clears at intervals of 20 ms
-or less. The completed interval is reflected one draw later; this measures CPU
-presentation completion, not configured monitor Hz or physical scanout. Startup,
-paused draws and the first presentation after a failed submission are excluded.
+A red **LAG** marker appears at the bottom right when the number of executed
+game frames, evaluated about once per second, falls below 50 fps; 50 fps or more
+clears it. All catch-up frames count, regardless of presentation count. Single
+long presentation intervals do not trigger it. Late samples are normalized by
+actual elapsed time. The state persists until the next evaluation and appears
+on the next draw. Pausing clears the state and restarts the measurement window
+on resume. This is emulation throughput, not monitor refresh rate or scanout.
 
 Each successfully submitted change in marker visibility immediately logs
 `[diag] LAG ON` or `[diag] LAG OFF`, including draw sequence and elapsed time.

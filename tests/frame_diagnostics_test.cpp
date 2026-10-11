@@ -72,85 +72,60 @@ int main()
     assert(batches[2].find("hitch draw=152 ") != std::string::npos);
     assert(batches[2].find("[diag] after") == std::string::npos);
     {
-        FrameDiagnostics diagnostics([](const std::string&) {}, clock);
-        const auto frame = [&](int microseconds, bool paused = false, bool submitted = true) {
-            diagnostics.begin(paused);
-            now += std::chrono::microseconds(microseconds);
-            diagnostics.submitted = submitted;
-            diagnostics.finish();
-        };
-        frame(100000); // First frame has no usable interval.
-        assert(!diagnostics.isSlowPresentation());
-        frame(20000); // Exactly 50 fps is not below the threshold.
-        assert(!diagnostics.isSlowPresentation());
-        frame(20001);
-        assert(diagnostics.isSlowPresentation());
-        std::vector<uint32_t> source(240 * 160, 0xFF123456);
-        const auto* marked = diagnostics.markedPixels(source.data(), 240, 160);
-        assert(marked[151 * 240 + 223] == 0xFF000000U);
-        assert(marked[152 * 240 + 225] == 0xFF4040FFU);
-        assert(source[152 * 240 + 225] == 0xFF123456U);
-        frame(16667); // Recover on the next successful interval.
-        assert(!diagnostics.isSlowPresentation());
-        marked = diagnostics.markedPixels(source.data(), 240, 160);
-        assert(marked[152 * 240 + 225] == source[152 * 240 + 225]);
-        frame(40000);
-        assert(diagnostics.isSlowPresentation());
-        diagnostics.begin(true); // Hide immediately on entering pause.
-        assert(!diagnostics.isSlowPresentation());
-        frame(100000, true);
-        frame(100000); // Resume does not measure the pause as a hitch.
-        assert(!diagnostics.isSlowPresentation());
-        frame(40000);
-        assert(diagnostics.isSlowPresentation());
-        frame(40000, false, false); // Failed/minimized presentation resets it.
-        assert(!diagnostics.isSlowPresentation());
-        frame(100000);
-        assert(!diagnostics.isSlowPresentation());
-    }
-    {
         std::vector<std::string> transitions;
         FrameDiagnostics diagnostics([&](const std::string& text) {
             if (text.find("[diag] LAG ") == 0) { transitions.push_back(text); }
         }, clock);
         std::vector<uint32_t> source(240 * 160, 0xFF123456);
-        const auto draw = [&](int ms, bool paused = false, bool success = true) {
+        const auto draw = [&](int ms, unsigned frames, bool paused = false, bool success = true) {
             diagnostics.begin(paused);
             diagnostics.markedPixels(source.data(), 240, 160);
             now += std::chrono::milliseconds(ms);
+            diagnostics.emulationFrames = frames;
             diagnostics.submitted = success;
             diagnostics.finish();
         };
-        draw(16);
-        draw(16);
-        assert(transitions.empty()); // Initial OFF is not a transition.
-        draw(30); // Detect lag, but the submitted image still has no mark.
+        // Alternating short/long presentation intervals total 60 game fps.
+        for (int i = 0; i < 20; ++i) {
+            draw(25, 1);
+            draw(25, 2);
+        }
+        assert(!diagnostics.isLagging());
         assert(transitions.empty());
-        draw(30);
+        // Fewer than 50 draws is fine when catch-up maintains 50 game fps.
+        for (int i = 0; i < 25; ++i) { draw(40, 2); }
+        assert(!diagnostics.isLagging());
+        // The decision changes only after the full second, even after a hitch.
+        draw(900, 44);
+        assert(!diagnostics.isLagging());
+        draw(100, 5); // 49 frames in one second.
+        assert(diagnostics.isLagging());
+        assert(transitions.empty()); // Marker is submitted on the next draw.
+        const auto* marked = diagnostics.markedPixels(source.data(), 240, 160);
+        assert(marked[152 * 240 + 225] == 0xFF4040FFU);
+        assert(source[152 * 240 + 225] == 0xFF123456U);
+        draw(20, 1);
         assert(transitions.size() == 1);
-        assert(transitions.back().find("LAG ON draw=4 ") != std::string::npos);
-        draw(30);
-        draw(16); // Recovery is reflected on the following image.
+        assert(transitions.back().find("LAG ON ") != std::string::npos);
+        for (int i = 0; i < 49; ++i) { draw(20, 1); }
+        assert(!diagnostics.isLagging()); // Exactly 50 fps recovers.
         assert(transitions.size() == 1);
-        draw(16);
+        draw(20, 1, false, false); // Failed OFF submission is not logged.
+        assert(transitions.size() == 1);
+        draw(20, 1);
         assert(transitions.size() == 2);
-        assert(transitions.back().find("LAG OFF draw=7 ") != std::string::npos);
-        draw(16);
-        draw(30);
-        draw(30, false, false); // Failed attempt to display ON must not log.
-        assert(transitions.size() == 2);
-        draw(16);
-        draw(30);
-        draw(30);
-        assert(transitions.size() == 3);
-        draw(16, true, false); // Failed paused draw must not log OFF.
-        assert(transitions.size() == 3);
-        draw(16, true);
-        assert(transitions.size() == 4);
         assert(transitions.back().find("LAG OFF ") != std::string::npos);
-        draw(16, true);
-        draw(16);
+        draw(1960, 58); // 60 frames over two seconds is 30 fps, not 60 fps.
+        assert(diagnostics.isLagging());
+        draw(20, 1);
+        assert(transitions.size() == 3);
+        draw(5000, 0, true);
+        assert(!diagnostics.isLagging());
         assert(transitions.size() == 4);
+        draw(5000, 0, true);
+        for (int i = 0; i < 50; ++i) { draw(20, 1); }
+        assert(!diagnostics.isLagging());
+        assert(transitions.size() == 4); // Pause duration is excluded.
     }
     {
         FrameDiagnostics unused([&](const std::string&) { assert(false); });
