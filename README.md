@@ -447,6 +447,19 @@ Windows). A small **DIAG** marker appears at the top right of the game image,
 including while paused. This marker is applied only to a display copy, not to
 emulated VRAM. Omit `-v` to disable the marker and diagnostic records.
 
+A red **LAG** marker appears at the bottom right of the game image when
+consecutive successful gameplay presentations finish more than 20 ms apart
+(instantaneous presentation rate below 50 fps). It clears at intervals of 20 ms
+or less. The completed interval is reflected one draw later; this measures CPU
+presentation completion, not configured monitor Hz or physical scanout. Startup,
+paused draws and the first presentation after a failed submission are excluded.
+
+Each successfully submitted change in marker visibility immediately logs
+`[diag] LAG ON` or `[diag] LAG OFF`, including draw sequence and elapsed time.
+Unchanged states, the initial hidden state and failed submissions do not emit
+transitions. These events are separate from the bounded summaries below;
+frequent ON/OFF changes can therefore exceed four total lines per second.
+
 `[diag] summary` is written to the usual `log.txt` about once per second
 (on the next draw), with draw/frame counts, catch-up/failure/pause/anomaly counts,
 maximum frame count and interval, and average/maximum CPU times for every phase.
@@ -464,7 +477,7 @@ candidates still contribute to counts and per-phase maxima. A neighbour can
 cross the preceding window; no following draw is invented at a window boundary.
 
 Normal output drops from roughly 60 lines/second to one; even continuous hitches
-are bounded to four lines/window. Individual minor fluctuations are intentionally
+are bounded to four summary/context lines/window (excluding LAG transitions). Individual minor fluctuations are intentionally
 summarized. Compare the same scene with recording off/on.
 
 The detailed candidate records use these fields (summaries use avg/max variants):

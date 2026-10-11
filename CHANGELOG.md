@@ -3,6 +3,8 @@
 ## Version 1.5.0
 
 - Added opt-in `-v` frame diagnostics with one-second CPU timing summaries, bounded worst-hitch context, emulated frame counts, and a DIAG marker on Windows and SDL renderers
+- Logged diagnostic LAG ON/OFF transitions only when marker visibility changes on a successful presentation
+- Added a red bottom-right LAG marker in diagnostic mode when consecutive gameplay presentation intervals exceed 20 ms (below 50 fps)
 
 ## Version 1.4.1
 

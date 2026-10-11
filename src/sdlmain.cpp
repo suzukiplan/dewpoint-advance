@@ -1565,7 +1565,7 @@ int main(int argc, char* argv[])
     FrameDiagnostics diagnosticLog([](const std::string& text) { std::cerr << text; });
     FrameDiagnostics* diagnostics = diagnosticMode ? &diagnosticLog : nullptr;
     if (diagnostics) {
-        const std::string text = "[diag] enabled: CPU timings in ms; render includes texture/present/wait; 1s summaries plus worst hitch context (max 4 lines/window); DIAG marker active\n";
+        const std::string text = "[diag] enabled: CPU timings in ms; render includes texture/present/wait; 1s summaries plus worst hitch context (max 4 lines/window, plus LAG transitions); DIAG marker active\n";
         std::cerr << text;
     }
 

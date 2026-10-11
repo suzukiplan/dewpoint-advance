@@ -51,7 +51,11 @@ class FrameDiagnostics
         milliseconds.fill(0);
         emulationFrames = 0;
         submitted = false;
+        markerPrepared = false;
         paused = isPaused;
+        if (paused) {
+            slowPresentation = false;
+        }
     }
 
     void finish()
@@ -59,6 +63,21 @@ class FrameDiagnostics
         const double elapsed = std::chrono::duration<double, std::milli>(now() - epoch).count();
         Sample sample{++draws, elapsed, hasPrevious ? elapsed - previous.elapsed : 0,
                       emulationFrames, paused, submitted, milliseconds};
+        // Log the marker in the submitted image, not the next interval's verdict.
+        // A failed presentation must not commit a visibility transition.
+        if (submitted && markerPrepared && preparedLag != displayedLag) {
+            displayedLag = preparedLag;
+            char line[160];
+            std::snprintf(line, sizeof(line),
+                "[diag] LAG %s draw=%llu t_ms=%.3f\n",
+                displayedLag ? "ON" : "OFF",
+                static_cast<unsigned long long>(draws), elapsed);
+            sink(line);
+        }
+        // Use consecutive successful gameplay presentations, not monitor Hz.
+        // The result is available for the next display copy (one draw later).
+        slowPresentation = submitted && !paused && hasPrevious &&
+            previous.submitted && !previous.paused && sample.interval > 20.0;
         ++count;
         frames += emulationFrames;
         pausedDraws += paused;
@@ -135,6 +154,8 @@ class FrameDiagnostics
     // Only the display copy is marked; emulated VRAM and game state stay intact.
     const uint32_t* markedPixels(const uint32_t* source, int width, int height)
     {
+        markerPrepared = source != nullptr;
+        preparedLag = false;
         if (!source || width < 21 || height < 9) {
             return source;
         }
@@ -144,28 +165,43 @@ class FrameDiagnostics
             {6, 5, 5, 5, 6}, {7, 2, 2, 2, 7},
             {2, 5, 7, 5, 5}, {3, 4, 5, 5, 3},
         };
-        const int left = width - 21;
-        for (int y = 2; y < 9; ++y) {
-            for (int x = left; x < width - 2; ++x) {
-                pixels[y * width + x] = 0xFF000000U;
-            }
-        }
-        for (int letter = 0; letter < 4; ++letter) {
-            for (int y = 0; y < 5; ++y) {
-                for (int x = 0; x < 3; ++x) {
-                    if (glyphs[letter][y] & (4U >> x)) {
-                        pixels[(y + 3) * width + left + 2 + letter * 4 + x] = 0xFFFFFFFFU;
-                    }
-                }
-            }
+        drawMarker(width, 2, glyphs, 0xFFFFFFFFU);
+        if (slowPresentation && height >= 18) {
+            preparedLag = true;
+            constexpr unsigned lagGlyphs[3][5] = {
+                {4, 4, 4, 4, 7}, {2, 5, 7, 5, 5}, {3, 4, 5, 5, 3},
+            };
+            drawMarker(width, height - 9, lagGlyphs, 0xFF4040FFU);
         }
         return pixels.data();
     }
+
+    bool isSlowPresentation() const { return slowPresentation; }
 
     unsigned emulationFrames = 0;
     bool submitted = false;
 
   private:
+    template<size_t Letters>
+    void drawMarker(int width, int top, const unsigned (&glyphs)[Letters][5], uint32_t color)
+    {
+        const int left = width - static_cast<int>(Letters) * 4 - 5;
+        for (int y = top; y < top + 7; ++y) {
+            for (int x = left; x < width - 2; ++x) {
+                pixels[y * width + x] = 0xFF000000U;
+            }
+        }
+        for (size_t letter = 0; letter < Letters; ++letter) {
+            for (int y = 0; y < 5; ++y) {
+                for (int x = 0; x < 3; ++x) {
+                    if (glyphs[letter][y] & (4U >> x)) {
+                        pixels[(top + y + 1) * width + left + 2 + letter * 4 + x] = color;
+                    }
+                }
+            }
+        }
+    }
+
     struct Sample
     {
         uint64_t draw = 0;
@@ -197,6 +233,8 @@ class FrameDiagnostics
     uint64_t draws = 0, frames = 0;
     unsigned count = 0, pausedDraws = 0, failedDraws = 0, catchupDraws = 0;
     unsigned anomalies = 0, maxFrames = 0;
+    bool slowPresentation = false;
+    bool markerPrepared = false, preparedLag = false, displayedLag = false;
     bool paused = false, hasPrevious = false, hasWorst = false;
     bool hasBefore = false, hasAfter = false;
     double windowStart = 0, lastElapsed = 0, maxInterval = 0, worstSeverity = 0;
