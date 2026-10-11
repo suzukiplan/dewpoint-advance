@@ -450,6 +450,8 @@ Steamの起動オプションに `-v` を追加するか、`game -v`（Windows�
 一時停止で判定と集計をリセットし、再開後は新たに1秒間集計します。
 モニターの設定Hzや実際の走査時刻を計測するものではありません。
 
+<img width="640" height="400" alt="image" src="https://github.com/user-attachments/assets/be84dae2-f049-42d9-bb1e-9b1c39b507c1" />
+
 LAGマークの表示状態が変わった提示の成功時に、`[diag] LAG ON` または
 `[diag] LAG OFF` を描画連番・経過時間とともに即時記録します。同じ状態が
 続く間や起動時の非表示状態では記録しません。提示失敗時も記録せず、
