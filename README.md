@@ -455,6 +455,8 @@ actual elapsed time. The state persists until the next evaluation and appears
 on the next draw. Pausing clears the state and restarts the measurement window
 on resume. This is emulation throughput, not monitor refresh rate or scanout.
 
+<img width="640" height="400" alt="image" src="https://github.com/user-attachments/assets/be84dae2-f049-42d9-bb1e-9b1c39b507c1" />
+
 Each successfully submitted change in marker visibility immediately logs
 `[diag] LAG ON` or `[diag] LAG OFF`, including draw sequence and elapsed time.
 Unchanged states, the initial hidden state and failed submissions do not emit
